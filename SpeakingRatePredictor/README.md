@@ -14,7 +14,7 @@ pip install pyphen
 ## Data Augmentation: Silence Injection
 During training, silence is randomly inserted into audio samples to improve generalization. The target speed label remains unchanged.
 
-- **Duration**: 30% ~ 70% of the original sample length.
+- **Silence Duration**: 30% ~ 70% of the original sample length.
 - **Mode Probabilities**:
   - `None` (40%): No silence added.
   - `Front` (20%): Silence added to the start.
