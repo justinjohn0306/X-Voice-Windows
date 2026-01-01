@@ -16,11 +16,11 @@ from model.dataset import load_dataset
 
 os.chdir(str(PROJECT_DIR))
 
-@hydra.main(version_base="1.3", config_path=str(SRC_DIR / "configs"), config_name="SpeedPredict_base.yaml")
+@hydra.main(version_base="1.3", config_path=str(SRC_DIR / "configs"), config_name=None)
 def main(cfg):
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     
-    exp_name = f"{cfg.model.name}_{cfg.datasets.name}"
+    exp_name = f"{cfg.model.name}_{cfg.datasets.name}_{cfg.model.loss}"
     wandb_resume_id = None
 
     # set model

@@ -1,6 +1,6 @@
 hydra:
   run:
-    dir: ckpts/${model.name}_${datasets.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ckpts/${model.name}_${datasets.name}_${model.loss}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 datasets:
   name: Emilia_ZH_EN  # dataset nam
@@ -13,7 +13,7 @@ datasets:
 optim:
   epochs: 100
   learning_rate: 2.5e-4
-  num_warmup_updates: 15000  # warmup updates
+  num_warmup_updates: 7500  # warmup updates
   grad_accumulation_steps: 1  # note: updates = steps / grad_accumulation_steps
   max_grad_norm: 1.0  # gradient clipping
   bnb_optimizer: False  # use bnb 8bit AdamW optimizer or not
@@ -42,7 +42,7 @@ ckpts:
   save_per_updates: 2000  # save checkpoint per updates
   keep_last_n_checkpoints: -1  # -1 to keep all, 0 to not save intermediate, > 0 to keep last N checkpoints
   last_per_updates: 2000 # 5000  # save last checkpoint per updates
-  save_dir: ckpts/${model.name}_${datasets.name}
+  save_dir: ckpts/${model.name}_${datasets.name}_${model.loss}
 
 eval:
   allowed_error: 0.15
