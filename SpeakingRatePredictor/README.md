@@ -15,8 +15,21 @@ pip install pyphen
 During training, silence is randomly inserted into audio samples to improve generalization. The target speed label remains unchanged.
 
 - **Silence Duration**: 30% ~ 70% of the original sample length.
-- **Mode Probabilities**:
-  - `None` (40%): No silence added.
-  - `Front` (20%): Silence added to the start.
-  - `Back` (20%): Silence added to the end.
-  - `Both` (20%): Silence added to both start and end.
+- **Mode Probabilities**: ($0 \leq p\% \leq 1$)
+  - `None`($1-p\%$): No silence added.
+  - `Front`($\frac{p}{3}\%$): Silence added to the start.
+  - `Back`($\frac{p}{3}\%$): Silence added to the end.
+  - `Both`($\frac{p}{3}\%$): Silence added to both start and end.
+
+Here is the revised version of your text in English:
+
+---
+
+## Using the Speaking Rate Predictor to Evaluate F5-TTS
+
+The script for predicting duration using the Speaking Rate Predictor to assist F5-TTS inference has been uploaded to my forked repository: [QingyuLiu0521/F5-TTSsrc/f5_tts/eval/eval_infer_batch_droptext_sp.py](https://github.com/QingyuLiu0521/F5-TTS/blob/c11cb40706d90f713dc93b297cc72f8d73edfa16/src/f5_tts/eval/eval_infer_batch_droptext_sp.py).
+
+### Example Usage:
+```bash
+accelerate launch src/f5_tts/eval/eval_infer_batch.py -s 0 -n "F5TTS_v1_Base" -c 1250000 -t "ls_pc_test_clean" -nfe 32 -ns "SpeedPredict_Base" -cs 20000 --local
+```
