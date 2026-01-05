@@ -21,10 +21,6 @@ During training, silence is randomly inserted into audio samples to improve gene
   - `Back`($\frac{p}{3}\%$): Silence added to the end.
   - `Both`($\frac{p}{3}\%$): Silence added to both start and end.
 
-Here is the revised version of your text in English:
-
----
-
 ## Using the Speaking Rate Predictor to Evaluate F5-TTS
 
 The script for predicting duration using the Speaking Rate Predictor to assist F5-TTS inference has been uploaded to my forked repository: [QingyuLiu0521/F5-TTSsrc/f5_tts/eval/eval_infer_batch_droptext_sp.py](https://github.com/QingyuLiu0521/F5-TTS/blob/c11cb40706d90f713dc93b297cc72f8d73edfa16/src/f5_tts/eval/eval_infer_batch_droptext_sp.py).
