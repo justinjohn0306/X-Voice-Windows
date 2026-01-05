@@ -17,9 +17,9 @@ During training, silence is randomly inserted into audio samples to improve gene
 - **Silence Duration**: 30% ~ 70% of the original sample length.
 - **Mode Probabilities**: $(0\leq p\%\leq 1)$
   - `None`($1-p\%$): No silence added.
-  - `Front`$\left(\frac{p}{3}\%\right)$: Silence added to the start.
-  - `Back`$\left(\frac{p}{3}\%\right)$: Silence added to the end.
-  - `Both`$\left(\frac{p}{3}\%\right)$: Silence added to both start and end.
+  - `Front`($\frac{p}{3}\%$): Silence added to the start.
+  - `Back`($\frac{p}{3}\%$): Silence added to the end.
+  - `Both`($\frac{p}{3}\%$): Silence added to both start and end.
 
 Here is the revised version of your text in English:
 
