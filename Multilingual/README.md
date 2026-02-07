@@ -1,6 +1,19 @@
 
 ## 训练集的准备
+安装以下依赖，其中后两者可选，只需在ipa_v4中使用
+```
+phonemizer
+pythainlp
+regex
 
+lingua
+spellchecker
+```
+并安装espeak
+```
+bash prepare_ipa.sh
+```
+转ipa
 ```
 python src/f5_tts/train/datasets/prepare_ipa.py --tokenizer ipa_v3 --dataset_name multilingual_clean
 ```
