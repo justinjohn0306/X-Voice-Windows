@@ -195,7 +195,7 @@ def load_checkpoint(model, ckpt_path, device: str, dtype=None, use_ema=True):
             else torch.float32
         )
     model = model.to(dtype)
-    print(f"dtype:{dtype}. If use swiglu and RMS norm, may need to use torch.float32.")
+    print(f"[debug]: Checkpoint dtype: {dtype}. If use swiglu and RMS norm, may need to use torch.float32.")
 
     ckpt_type = ckpt_path.split(".")[-1]
     if ckpt_type == "safetensors":

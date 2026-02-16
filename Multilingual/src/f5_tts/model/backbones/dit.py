@@ -133,9 +133,18 @@ class TextEmbedding(nn.Module):
         if drop_text:  # cfg for text
             text = torch.zeros_like(text)
 
-        text = self.text_embed(text)  # b n -> b n d
+        text = self.text_embed(text)  # [b nt] -> [b nt d]
         # concat language embedding
         if self.num_languages is not None and language_ids is not None:
+            if language_ids.dim() == 2: # [b, nt]，用于cross lingual
+                language_ids = language_ids[:, :seq_len]
+                # 这里任意pad一个值就好，因为后面concat之后还是要根据text_mask把后面变为0的
+                language_ids = F.pad(language_ids, (0, seq_len - language_ids.shape[1]), value=0) 
+            else:
+                assert language_ids.dim() == 1 # [b]，用于正常的单一语言
+                # [b] -> [b, 1] -> [b, nt]
+                language_ids = language_ids.unsqueeze(1).expand(-1, text.size(1))
+                
             # 只有在训练模式下才执行Dropout
             current_lang_ids = language_ids.clone()
             if self.training:
@@ -143,10 +152,9 @@ class TextEmbedding(nn.Module):
                 mask = torch.rand(current_lang_ids.shape, device=text.device) < self.lang_dropout_prob
                 current_lang_ids[mask] = self.num_languages # 指向预留的未知语种位
             
-            l_emb = self.lang_embed(current_lang_ids) # [b, lang_dim]
+            l_emb = self.lang_embed(current_lang_ids) # [b, nt, lang_dim] 
+            assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
             if self.infill_lang_type =="token_concat":
-                # [b, 1, lang_dim] -> [b, n, lang_dim]
-                l_emb = l_emb.unsqueeze(1).expand(-1, text.size(1), -1)
                 merged = torch.cat([text, l_emb], dim=-1)
                 text = self.fusion(merged) 
             elif self.infill_lang_type == "ada":
@@ -335,7 +343,7 @@ class DiT(nn.Module):
         drop_text: bool = False,
         cache: bool = True,
         audio_mask: bool["b n"] | None = None,
-        lang_ids_tensor=None,
+        lang_ids_tensor: torch.Tensor | None = None, # [b] / [b, nt]
     ):
         if self.text_uncond is None or self.text_cond is None or not cache:
             if audio_mask is None:
@@ -384,7 +392,7 @@ class DiT(nn.Module):
         drop_text: bool = False,  # cfg for text
         cfg_infer: bool = False,  # cfg inference, pack cond & uncond forward
         cache: bool = False,
-        language_ids: list[str] = None,
+        language_ids: list[str] | torch.Tensor = None, # 在新逻辑里面，应该在外部就把lang_to_id做好，传进来一个tensor
         return_ctc: bool = False,
     ):
         batch, seq_len = x.shape[0], x.shape[1]
@@ -396,20 +404,26 @@ class DiT(nn.Module):
         if self.languages is not None:
             if language_ids is None:
                 raise ValueError("language_ids must be provided for multilingual training.")
-            lang_ids_tensor = torch.tensor(
-                    [self.lang_to_id[lang] for lang in language_ids], 
-                    dtype=torch.long, 
-                    device=text.device
-                )
+            if isinstance(language_ids, list): # 旧逻辑，传入language_id的字符串列表
+                lang_ids_tensor = torch.tensor(
+                        [self.lang_to_id[lang] for lang in language_ids], 
+                        dtype=torch.long, 
+                        device=text.device
+                    )
+            elif isinstance(language_ids, torch.Tensor):
+                lang_ids_tensor = language_ids
             if self.infill_lang_type in ["token_concat","ada"]:
-                pass # process in TextEmbedding
+                pass # lang_ids_tensor将被传到 TextEmbedding
             else:
+                assert lang_ids_tensor.dim() == 1, "add_only or time concat mode do not support cross-lingual texts"
                 lang_emb = self.lang_embed(lang_ids_tensor)
                 if not self.infill_lang_type or self.infill_lang_type=="add_only":
                     t += lang_emb
                 elif self.infill_lang_type=="concat":
                     joint_cond = torch.cat([t, lang_emb], dim=-1)
                     t = self.cond_fusion(joint_cond)
+            
+        # 如果是 add_only 或者时间上 concat， lang_ids_tensor传进去没有用        
         if cfg_infer:  # pack cond & uncond forward: b n d -> 2b n d
             x_cond = self.get_input_embed(
                 x, cond, text, drop_audio_cond=False, drop_text=False, cache=cache, audio_mask=mask, lang_ids_tensor=lang_ids_tensor,

@@ -15,13 +15,14 @@ import re
 
 from f5_tts.eval.ecapa_tdnn import ECAPA_TDNN_SMALL
 from f5_tts.model.modules import MelSpec
-from f5_tts.model.utils import convert_char_to_pinyin
+from f5_tts.model.utils import convert_char_to_pinyin, str_to_list_ipa_all
 
 # from nemo_text_processing.text_normalization.normalize import Normalizer
 from f5_tts.eval.text_normalizer import TextNormalizer
 import pickle
+import pyphen
 
-def get_testset_metainfo(data_dir,in_language):
+def get_testset_metainfo(data_dir, in_language, ref_language=None):
     """
     data_dir goes to: cv3_eval/zero_shot/[in_language] 
     metainfo: List[Tuple(utt_id, prompt_wav_path, prompt_text, target_text)]
@@ -29,10 +30,14 @@ def get_testset_metainfo(data_dir,in_language):
     path_parts = data_dir.split("/")
     data_idx = path_parts.index("zero_shot")
     root_dir = "/".join(path_parts[:data_idx])
-    
-    prompt_scp = os.path.join(data_dir, "prompt_wav.scp")
-    prompt_text_file = os.path.join(data_dir, "prompt_text") 
-    target_text_file = os.path.join(data_dir, "text")      
+    if ref_language:
+        prompt_scp = os.path.join(root_dir, "zero_shot", ref_language, "prompt_wav.scp")
+        prompt_text_file = os.path.join(root_dir, "zero_shot", ref_language, "prompt_text") 
+    else:
+        prompt_scp = os.path.join(data_dir, "prompt_wav.scp")
+        prompt_text_file = os.path.join(data_dir, "prompt_text") 
+        
+    target_text_file = os.path.join(data_dir, "text")     
 
     utt2wav = {}
     with open(prompt_scp, 'r', encoding='utf-8') as f:
@@ -64,7 +69,7 @@ def get_testset_metainfo(data_dir,in_language):
             target_text = utt2text[utt_id]
             prompt_text = utt2prompt[utt_id] 
             wav_path_clean = wav_path.replace("data/", "", 1)  
-            full_wav_path = os.path.join(root_dir,wav_path_clean)
+            full_wav_path = os.path.join(root_dir, wav_path_clean)
             metainfo.append((utt_id, prompt_text, full_wav_path, target_text))
             
     return metainfo
@@ -159,6 +164,72 @@ def count(text):
     return round(count_syllables(text) + count_punctuations(text))
 # get prompts from metainfo containing: utt, prompt_text, prompt_wav, gt_text, gt_wav
 
+PYPHEN_LANG_MAP = {
+    "bg": "bg_BG", # 保加利亚语
+    "cs": "cs_CZ", # 捷克语
+    "da": "da_DK", # 丹麦语
+    "de": "de_DE", # 德语
+    "el": "el_GR", # 希腊语
+    "en": "en_US", # 英语
+    "es": "es_ES", # 西班牙语
+    "et": "et_EE", # 爱沙尼亚语
+    "fi": "fi_FI", # 芬兰语
+    "fr": "fr_FR", # 法语
+    "hr": "hr_HR", # 克罗地亚语
+    "hu": "hu_HU", # 匈牙利语
+    "id": "id_ID", # 印尼语
+    "it": "it_IT", # 意大利语
+    "lt": "lt_LT", # 立陶宛语
+    "lv": "lv_LV", # 拉脱维亚语
+    "mt": "mt_MT", # 马耳他语 (如果没有字典会自动回退)
+    "nl": "nl_NL", # 荷兰语
+    "pl": "pl_PL", # 波兰语
+    "pt": "pt_PT", # 葡萄牙语
+    "ro": "ro_RO", # 罗马尼亚语
+    "ru": "ru_RU", # 俄语
+    "sk": "sk_SK", # 斯洛伐克语
+    "sl": "sl_SI", # 斯洛文尼亚语
+    "sv": "sv_SE", # 瑞典语
+}
+
+_PYPHEN_CACHE = {}
+
+def get_syllable_count(text: str, lang: str) -> int:
+    """
+    计算文本音节数。
+    - 中文/日文/韩文 (CJK): 按字符数计算
+    - 其他语言: 使用 pyphen 连字符算法计算
+    """
+    if not text:
+        return 0
+        
+    if lang in ["zh", "ja", "ko", "th"]:
+        # 简单清洗一下，只算有效字符
+        clean_text = re.sub(r"\s+", "", text) 
+        return len(clean_text)
+    if lang == "vi":
+        return len(text.split())
+    # 获取 Pyphen 对应的字典代码
+    pyphen_lang = PYPHEN_LANG_MAP.get(lang, "en_US") # 默认回退到英语规则
+    if pyphen_lang not in _PYPHEN_CACHE:
+        try:
+            _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
+        except Exception:
+            # 如果加载失败（比如不支持的语言），回退到英语通用规则
+            if "en_US" not in _PYPHEN_CACHE:
+                _PYPHEN_CACHE["en_US"] = pyphen.Pyphen(lang="en_US")
+            pyphen_lang = "en_US"
+    dic = _PYPHEN_CACHE[pyphen_lang]
+    # Pyphen 的 inserted 方法会在音节间插入连字符，例如 "hello" -> "hel-lo"
+    # 我们分割连字符并计算数量；先分词，再对每个词算音节
+    count = 0
+    words = text.split()
+    for word in words:
+        if not word.strip(): continue
+        # inserted 返回 "hy-phen-a-tion"
+        syllables = dic.inserted(word).split('-')
+        count += len(syllables) 
+    return count
 
 def get_inference_prompt(
     metainfo,
@@ -184,8 +255,11 @@ def get_inference_prompt(
     normalize_text=False,
     drop_text=False,
     reverse=False,
+    sp_type="utf",
     model_sp=None,
     device=None,
+    ref_language=None,
+    ref_ipa_tokenizer=None,
 ):
     prompts_all = []
 
@@ -193,8 +267,8 @@ def get_inference_prompt(
     max_tokens = max_secs * target_sample_rate // hop_length
 
     batch_accum = [0] * num_buckets
-    utts, ref_rms_list, ref_mels, ref_mel_lens, total_mel_lens, final_text_list = (
-        [[] for _ in range(num_buckets)] for _ in range(6)
+    utts, ref_rms_list, ref_mels, ref_mel_lens, total_mel_lens, final_text_list, ref_text_lens, gen_text_lens = (
+        [[] for _ in range(num_buckets)] for _ in range(8)
     )
 
     mel_spectrogram = MelSpec(
@@ -208,6 +282,8 @@ def get_inference_prompt(
     if normalize_text:
         print("Using text normalizer to pre-process the texts.")
         normalizer = TextNormalizer(language=language)
+        if ref_language is not None:
+            ref_normalizer = TextNormalizer(language=ref_language)
     for item in tqdm(metainfo, desc="Processing prompts..."):
         if len(item)==5:
             utt, prompt_text, prompt_wav, gt_text, gt_wav = item
@@ -271,29 +347,51 @@ def get_inference_prompt(
                 ref_audio = resampler(ref_audio)
 
             # Text
-            if len(prompt_text[-1].encode("utf-8")) == 1:
-                prompt_text = prompt_text + " "
+            
             if normalize_text:
                 # print(gt_text)
-                prompt_text = normalizer.normalize(prompt_text)
+                if ref_language:
+                    prompt_text = ref_normalizer.normalize(prompt_text)
+                else:
+                    prompt_text = normalizer.normalize(prompt_text)
                 gt_text = normalizer.normalize(gt_text)
                 # print(f"{gt_text}\n")
+                       
+            if ref_language: # Cross-lingual
+                assert tokenizer.startswith("ipa") and ref_ipa_tokenizer and language and ipa_tokenizer, "Cross-lingual needs ipa tokenizer."
+                ref_text_str = ref_ipa_tokenizer(prompt_text)
+                gen_text_str = ipa_tokenizer(gt_text) 
+                ref_text_tokenized = str_to_list_ipa_all(ref_text_str, tokenizer, language)
+                gen_text_tokenized = str_to_list_ipa_all(gen_text_str, tokenizer, ref_language)
+            else:
+                if tokenizer == "pinyin":
+                    ref_text_tokenized = convert_char_to_pinyin([prompt_text], polyphone=polyphone)[0]
+                    gen_text_tokenized = convert_char_to_pinyin([gt_text], polyphone=polyphone)[0]
+                elif tokenizer.startswith("ipa") and ipa_tokenizer:
+                    ref_text_str = ipa_tokenizer(prompt_text)
+                    gen_text_str = ipa_tokenizer(gt_text)
+                    ref_text_tokenized = str_to_list_ipa_all(ref_text_str, tokenizer, language)
+                    gen_text_tokenized = str_to_list_ipa_all(gen_text_str, tokenizer, language)
+                else:
+                    ref_text_tokenized = list(prompt_text)
+                    gen_text_tokenized = list(gt_text)
+                    
+            if len(ref_text_tokenized[-1].encode("utf-8")) == 1 and not reverse:
+                ref_text_tokenized.append(" ")
+            elif len(gen_text_tokenized[-1].encode("utf-8")) == 1 and reverse:
+                gen_text_tokenized.append(" ")
+            if random.random()<0.001:
+                print(f"==========\n{ref_text_tokenized}\n{gen_text_tokenized}\n============")
+            
+            curr_ref_len = len(ref_text_tokenized)
+            curr_gen_len = len(gen_text_tokenized)
             if drop_text:
-                text = [gt_text]
+                text_list = [gen_text_tokenized]
+                curr_ref_len = 0
             elif reverse:
-                gt_text = gt_text + " "
-                text = [gt_text + prompt_text]
+                text_list = [gen_text_tokenized + ref_text_tokenized] # 两个列表相加
             else:
-                text = [prompt_text + gt_text]
-            if tokenizer == "pinyin":
-                text_list = convert_char_to_pinyin(text, polyphone=polyphone)
-            elif tokenizer.startswith("ipa") and language and ipa_tokenizer:
-                text_list = [ipa_tokenizer(text)] 
-                import random
-                if random.random()<0.001:
-                    print(f"==========\n{text}\n{text_list}\n============")
-            else:
-                text_list = text
+                text_list = [ref_text_tokenized + gen_text_tokenized]
 
             # to mel spectrogram
             ref_mel = mel_spectrogram(ref_audio)
@@ -312,7 +410,8 @@ def get_inference_prompt(
                 # # test vocoder resynthesis
                 # ref_audio = gt_audio
             else:
-                if model_sp is not None:
+                if sp_type == "pretrained":
+                    assert model_sp is not None
                     gt_num_unit = count(gt_text)
                     ref_mel_t = ref_mel.unsqueeze(0).permute(0, 2, 1)
                     ref_mel_tensor = ref_mel_t.to(device)
@@ -324,6 +423,16 @@ def get_inference_prompt(
                     # pred_duration = gt_num_unit / speed.item()
                     pred_duration = min(max(gt_num_unit / speed.item(), 2), 30)
                     gen_mel_len = int((pred_duration * target_sample_rate) / hop_length)
+                    total_mel_len = ref_mel_len + gen_mel_len
+                elif sp_type == "syllable":
+                    if ref_language:
+                        ref_syllables = get_syllable_count(prompt_text, ref_language)
+                    else:
+                        ref_syllables = get_syllable_count(prompt_text, language)
+                    gen_syllables = get_syllable_count(gt_text, language)
+                    if ref_syllables == 0:
+                        ref_syllables = 1
+                    gen_mel_len = int(ref_mel_len * (gen_syllables / ref_syllables) / speed)
                     total_mel_len = ref_mel_len + gen_mel_len
                 else:
                     ref_text_len = len(prompt_text.encode("utf-8"))
@@ -343,6 +452,8 @@ def get_inference_prompt(
             ref_mel_lens[bucket_i].append(ref_mel_len)
             total_mel_lens[bucket_i].append(total_mel_len)
             final_text_list[bucket_i].extend(text_list)
+            ref_text_lens[bucket_i].append(curr_ref_len)
+            gen_text_lens[bucket_i].append(curr_gen_len)
 
             batch_accum[bucket_i] += total_mel_len
 
@@ -356,6 +467,8 @@ def get_inference_prompt(
                         ref_mel_lens[bucket_i],
                         total_mel_lens[bucket_i],
                         final_text_list[bucket_i],
+                        ref_text_lens[bucket_i], 
+                        gen_text_lens[bucket_i]  
                     )
                 )
                 batch_accum[bucket_i] = 0
@@ -366,7 +479,9 @@ def get_inference_prompt(
                     ref_mel_lens[bucket_i],
                     total_mel_lens[bucket_i],
                     final_text_list[bucket_i],
-                ) = [], [], [], [], [], []
+                    ref_text_lens[bucket_i], 
+                    gen_text_lens[bucket_i]
+                ) = [], [], [], [], [], [], [], []
         except Exception as e:
             print(f"[WARN] Failed to load {utt}: {e}")
             continue  
@@ -382,14 +497,13 @@ def get_inference_prompt(
                     ref_mel_lens[bucket_i],
                     total_mel_lens[bucket_i],
                     final_text_list[bucket_i],
+                    ref_text_lens[bucket_i],
+                    gen_text_lens[bucket_i]
                 )
             )
     # not only leave easy work for last workers
     random.seed(666)
     random.shuffle(prompts_all)
-    # with open(cache_file, 'wb') as f:
-    #     pickle.dump(prompts_all, f)
-    # print(f"Prompts cache saved to {cache_file}")
 
     return prompts_all
 

@@ -187,16 +187,11 @@ def str_to_list_ipa_v3(phonemized: str) -> List[str]:
             fields.append(" ")
     return fields
 
-
-SHARED_SYMBOLS = set(" !%&',-.;:?@[]—…·")
-TAGGED_SINGLE_SYMBOLS = {
-    'ː', 'ʲ', '̃', 'ʰ', 'ˤ', 'ˠ', 'ˑ', '̆', '^', '`', '̯', '̪', '͡',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-}
-# 核心正则逻辑：
-# 1. ([a-zA-Z\u00C0-\u02AF]+) : 匹配连续的字母块（如 iəɜ, bei, jing），这些块会整体打标
-# 2. (.) : 匹配任意单个字符（处理标点或修饰符）
+# 先尝试匹配（连续的字母 / 扩展拉丁字符），作为一个完整 token；
+# 若匹配不到，则匹配任意单个字符，每个字符单独作为一个 token；
+# 两个括号是捕获组，分别保存两部分的匹配结果（匹配到哪部分，对应捕获组有值，另一组为空）。
 TOKEN_EXTRACTOR = re.compile(r"([a-zA-Z\u00C0-\u02AF]+)|(.)")
+SHARED_SYMBOLS = set(" !%&',-.;:?@[]—…·")
 def str_to_list_ipa_v5(phonemized: str, lang: str) -> List[str]:
     suffix = f"_{lang}"
     fields = []
@@ -224,6 +219,85 @@ def str_to_list_ipa_v5(phonemized: str, lang: str) -> List[str]:
             fields.append(" ")          
     return fields
 
+
+IPA_NORMALIZATION_MAP = {
+    # 符号统一化
+    # 元音+辅音/辅音+元音
+    # 1. eɪ/aɪ
+    "eɪɛ": "eɪ|ɛ", "zeɪɛ": "z|eɪ|ɛ", "teɪɛ": "t|eɪ|ɛ", "əeɪ": "ə|eɪ", "aɪɛ": "aɪ|ɛ", "taɪ": "t|aɪ", 
+    # 2. ja/ju
+    "jap": "ja|p", "jud": "ju|d", "jaɛ": "ja|ɛ", "ʃja": "ʃ|ja", "jat": "ja|t", "ɑja": "ɑ|ja", "əlɹ": "əl|ɹ", "əlf": "əl|f", "oʊw": "oʊ|w", 
+    "daʊ":"d|aʊ", "meɪ":"m|eɪ", "taʊ":"t|aʊ", "daɪ":"d|aɪ",
+    # 3. ɑ 
+    # "ɑɛ": "ɑ|ɛ", "ɑʃ": "ɑ|ʃ", "ɑa": "ɑ|a",
+    # 4. ə
+    # "əb": "ə|b", 
+    # 5. ɪ
+    # "ɪn": "ɪ|n", "ɪs": "ɪ|s", "ɪd": "ɪ|d", "ɪɡ": "ɪ|ɡ",  "ɪv": "ɪ|v","ɪz": "ɪ|z", "ɪu": "ɪ|u", 
+    # "kɪ": "k|ɪ", "fɪ": "f|ɪ",
+    # 6. ʌ
+    # "ʌn": "ʌ|n", "ʌt": "ʌ|t", "ʌp": "ʌ|p", "ʌɡ": "ʌ|ɡ", "ʌb": "ʌ|b", "ʌs": "ʌ|s", "ʌx": "ʌ|x", 
+    # "fʌ": "f|ʌ", "jʌ": "j|ʌ", "zʌ": "z|ʌ",
+    # 7. i
+    # "iz": "i|z", "iv": "i|v",
+    # 8. ɛ
+    # "nɛ": "n|ɛ", "lɛ": "l|ɛ", "mɛ": "m|ɛ", "ŋɛ": "ŋ|ɛ", "jɛ": "j|ɛ",
+    # 9. 其他
+    # "am": "a|m", "ax": "a|x", "om": "o|m", "ud": "u|d", "ez": "e|z", "es": "e|s", "oɭ": "o|ɭ", 
+    # # 两个辅音
+    # "tɡ": "t|ɡ", "mk": "m|k", "dt": "d|t", "ns": "n|s", "kz": "k|z", "kd": "k|d", "tv": "t|v",
+    # "vs": "v|s", "zt": "z|t", "nf": "n|f", "tɹ": "t|ɹ", "lt": "l|t", "tk": "t|k", "km": "k|m",
+    # "dh": "d|h", "nt": "n|t", "fk": "f|k", "ms": "m|s", "yk": "y|k", "mv": "m|v", "nm": "n|m",
+    # "jd": "j|d", "yj": "y|j", "kn": "k|n", "xt": "x|t", "mt": "m|t", "jt": "j|t", "jb": "j|b",
+    # "fz": "f|z", "yf": "y|f", "pn": "p|n", "qn": "q|n", "dg": "d|g", "pg": "p|g", "mn": "m|n",
+    # # 叠音
+    # "tt": "t|t", "ss": "s|s", "ff": "f|f", "mm": "m|m", "nn": "n|n", "ɪɪ": "ɪ|ɪ", "ɑɑ": "ɑ|ɑ", "ʌʌ": "ʌ|ʌ",
+}
+# 垃圾字符直接删除
+GARBAGE_CHARS = r'[&ㄜでかすπ%@]'
+def str_to_list_ipa_v6(phonemized: str) -> List[str]:
+    fields = []
+    # 先按空格切分
+    text = re.sub(GARBAGE_CHARS, '', phonemized)
+    sorted_map_keys = sorted(IPA_NORMALIZATION_MAP.keys(), key=len, reverse=True)
+    for key in sorted_map_keys:
+        text = text.replace(key, IPA_NORMALIZATION_MAP[key])
+    words = text.split(" ")
+    for i, word in enumerate(words):
+        if not word: continue
+        processed_tokens = []
+        # 再按音素分隔符|切分
+        tokens = word.split("|")
+        # 过滤空字符串、分割音素音调
+        for token in tokens:
+            if not token: continue
+            for m in TOKEN_EXTRACTOR.finditer(token):
+                text_chunk = m.group(1) # 字母块
+                symbol_chunk = m.group(2) # 单个符号
+                if text_chunk:
+                    fields.append(text_chunk)
+                elif symbol_chunk:
+                    fields.append(symbol_chunk)
+        if i < len(words) - 1:
+            fields.append(" ")
+    return fields
+
+def str_to_list_ipa_all(ipa_string: str, tokenizer, language_id=None) -> List[str]:
+    fields = []
+    if tokenizer == "ipa":
+            fields = str_to_list_ipa(ipa_string)
+    elif tokenizer == "ipa_v2":
+        fields = str_to_list_ipa_v2(ipa_string)
+    elif tokenizer == "ipa_v3":
+        fields = str_to_list_ipa_v3(ipa_string)
+    elif tokenizer == "ipa_v5":
+        fields = str_to_list_ipa_v5(ipa_string, lang=language_id)
+    elif tokenizer == "ipa_v6":
+        fields = str_to_list_ipa_v6(ipa_string)
+    else: 
+        print(f"{tokenizer} is not a supported  version of ipa.")
+    return fields
+
 def list_str_to_idx_ipa(
     text: list[str],
     vocab_char_map: dict[str, int],
@@ -237,18 +311,18 @@ def list_str_to_idx_ipa(
     batch_indices = []
     fields=[]
     for i, ipa_string in enumerate(text):
-        if tokenizer == "ipa":
-            fields = str_to_list_ipa(ipa_string)
-        elif tokenizer == "ipa_v2":
-            fields = str_to_list_ipa_v2(ipa_string)
-        elif tokenizer == "ipa_v3":
-            fields = str_to_list_ipa_v3(ipa_string)
-        elif tokenizer == "ipa_v5":
-            fields = str_to_list_ipa_v5(ipa_string, lang=language_ids[i])
-        else: 
-            print(f"{tokenizer} is not a supported  version of ipa.")
+        fields = str_to_list_ipa_all(ipa_string, tokenizer, language_ids[i])
         if fields:
-            indices = [vocab_char_map.get(token, unk_idx) for token in fields]
+            indices=[]
+            for token in fields:
+                idx = vocab_char_map.get(token, unk_idx)
+                if idx == unk_idx and token != "…":
+                    print(f"{token} is invalid")
+                    token_indices = [vocab_char_map.get(t, unk_idx) for t in token]
+                    indices.extend(token_indices)
+                else:
+                    indices.append(idx) 
+            # indices = [vocab_char_map.get(token, unk_idx) for token in fields]
             batch_indices.append(torch.tensor(indices, dtype=torch.long))
         
     padded_batch = pad_sequence(
@@ -257,6 +331,34 @@ def list_str_to_idx_ipa(
         padding_value=padding_value
     )
     
+    return padded_batch
+
+def list_list_to_idx(
+    text: list[list[str]],
+    vocab_char_map: dict[str, int],
+    padding_value: int = -1, 
+) -> torch.Tensor:
+    
+    unk_idx = vocab_char_map.get("<pad>", 0)
+    batch_indices = []
+    for i, ipa_list in enumerate(text):
+        if ipa_list:
+            indices=[]
+            for token in ipa_list:
+                idx = vocab_char_map.get(token, unk_idx)
+                if idx == unk_idx and token != "…":
+                    print(f"{token} is invalid")
+                    token_indices = [vocab_char_map.get(t, unk_idx) for t in token]
+                    indices.extend(token_indices)
+                else:
+                    indices.append(idx) 
+            batch_indices.append(torch.tensor(indices, dtype=torch.long))
+        
+    padded_batch = pad_sequence(
+        batch_indices, 
+        batch_first=True, 
+        padding_value=padding_value
+    )
     return padded_batch
 
 

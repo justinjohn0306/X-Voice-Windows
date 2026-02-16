@@ -25,7 +25,7 @@ from f5_tts.model.utils import (
     exists,
     get_epss_timesteps,
     lens_to_mask,
-    list_str_to_idx, list_str_to_idx_ipa,
+    list_str_to_idx, list_str_to_idx_ipa, list_list_to_idx,
     list_str_to_tensor,
     mask_from_frac_lengths,
 )
@@ -88,7 +88,7 @@ class CFM(nn.Module):
     def sample(
         self,
         cond: float["b n d"] | float["b nw"],
-        text: int["b nt"] | list[str],
+        text: int["b nt"] | list[str] | list[list[str]],
         duration: int | int["b"],
         *,
         lens: int["b"] | None = None,
@@ -103,7 +103,7 @@ class CFM(nn.Module):
         duplicate_test=False,
         t_inter=0.1,
         edit_mask=None,
-        language_ids:  list[str] | None = None, 
+        language_ids:  list[str] | torch.Tensor | None = None, 
         cfg_schedule=None,
         cfg_decay_start=0.7,
         reverse=False,
@@ -124,7 +124,7 @@ class CFM(nn.Module):
 
         # text
 
-        if isinstance(text, list):
+        if isinstance(text, list) and isinstance(text[0],str):
             if exists(self.vocab_char_map):
                 if self.tokenizer.startswith("ipa"):
                     text = list_str_to_idx_ipa(text, self.vocab_char_map, self.tokenizer, language_ids=language_ids).to(device)
@@ -133,6 +133,10 @@ class CFM(nn.Module):
             else:
                 text = list_str_to_tensor(text).to(device)
             assert text.shape[0] == batch
+        elif isinstance(text, list) and isinstance(text[0],list):
+            assert exists(self.vocab_char_map)
+            text = list_list_to_idx(text, self.vocab_char_map).to(device)
+            
 
         # duration
 
@@ -265,7 +269,7 @@ class CFM(nn.Module):
         *,
         lens: int["b"] | None = None,
         noise_scheduler: str | None = None,
-        language_ids: list[str] | None, 
+        language_ids: list[str] | torch.Tensor | None, # 在cross lingual中，传到cfm的就是id数字了
     ):
         # handle raw wave
         if inp.ndim == 2:

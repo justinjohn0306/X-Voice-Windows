@@ -15,6 +15,8 @@ from hydra.utils import get_class
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+from torch.nn.utils.rnn import pad_sequence
+
 from f5_tts.eval.utils_eval import (
     get_inference_prompt,
     get_librispeech_test_clean_metainfo,
@@ -31,7 +33,7 @@ from f5_tts.train.datasets.ipa_v2_tokenizer import PhonemizeTextTokenizer as Pho
 from f5_tts.train.datasets.ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v3
 from f5_tts.train.datasets.ipa_v4_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v4
 from f5_tts.train.datasets.ipa_v5_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v5
-
+from f5_tts.train.datasets.ipa_v6_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v6
 
 # import debugpy
 # debugpy.listen(('localhost', 5678))
@@ -57,7 +59,7 @@ def main():
     parser.add_argument("-n", "--expname", required=True)
     parser.add_argument("-c", "--ckptstep", default=1250000, type=int)
 
-    parser.add_argument("-sp", "--usesp", action="store_true")
+    parser.add_argument("-sp", "--sp_type", default="utf", type=str)
     parser.add_argument("-ns", "--expnamesp", default=None, type=str)
     parser.add_argument("-cs", "--ckptstepsp", default=10000, type=int)
     parser.add_argument("-r", "--reverse", action="store_true")
@@ -71,6 +73,9 @@ def main():
     parser.add_argument("--normalize_text", action="store_true")
     parser.add_argument("--cfg_strength", default=2.0, type=float)
     
+    parser.add_argument("--cross_lingual", action="store_true")
+    parser.add_argument("-rl", "--reference_languages", default=None, help="Comma separated list of languages, length is the same as --languages")
+    
 
     args = parser.parse_args()
 
@@ -83,10 +88,12 @@ def main():
     sway_sampling_coef = args.swaysampling
 
     testset = args.testset
-    usesp = args.usesp
+    sp_type = args.sp_type
     exp_name_sp = args.expnamesp
     ckpt_step_sp = args.ckptstepsp
     reverse = args.reverse
+    
+    cross_lingual = args.cross_lingual
     
     in2lang = { 
         "th":"thai", "id":"indonesian", "vi":"vietnamese", 
@@ -105,8 +112,19 @@ def main():
         for language in languages_set:
             if language in in2lang:
                 target_languages.append(language)
-            elif args.language in lang2in:
+            elif language in lang2in:
                 target_languages.append(lang2in[language])
+            else:
+                print(f"Not supported {language}")
+                continue
+    if cross_lingual:
+        reference_languages = []
+        ref_languages_set = args.reference_languages.split(",")
+        for language in ref_languages_set:
+            if language in in2lang:
+                reference_languages.append(language)
+            elif language in lang2in:
+                reference_languages.append(lang2in[language])
             else:
                 print(f"Not supported {language}")
                 continue
@@ -131,8 +149,10 @@ def main():
     win_length = model_cfg.model.mel_spec.win_length
     n_fft = model_cfg.model.mel_spec.n_fft
     
+    
+    
     # speedpredictor config
-    if usesp:
+    if sp_type == "pretrained":
         sp_cfg = OmegaConf.load(str(files("f5_tts").joinpath(f"configs/{exp_name_sp}.yaml")))
         mel_spec_kwargs = sp_cfg.model.mel_spec
         sp_arc = sp_cfg.model.arch
@@ -195,21 +215,28 @@ def main():
     model = load_checkpoint(model, ckpt_path, device, dtype=dtype, use_ema=use_ema)
     # model = accelerator.prepare(model)
     
-    for in_language in target_languages:
-        if tokenizer == "ipa":
-            ipa_id = get_ipa_id(in_language)
-            ipa_tokenizer = PhonemizeTextTokenizer(language=ipa_id)
-        elif tokenizer == "ipa_v2":
-            ipa_id = get_ipa_id(in_language)
-            ipa_tokenizer = PhonemizeTextTokenizer_v2(language=ipa_id)
-        elif tokenizer == "ipa_v3":
-            ipa_id = get_ipa_id(in_language)
-            ipa_tokenizer = PhonemizeTextTokenizer_v3(language=ipa_id)
-        elif tokenizer == "ipa_v5":
-            ipa_id = get_ipa_id(in_language)
-            ipa_tokenizer = PhonemizeTextTokenizer_v5(language=ipa_id)
-        else:
-            ipa_tokenizer = None
+    lang_to_id = model.transformer.lang_to_id
+    tokenizer_class_map = {
+        "ipa": PhonemizeTextTokenizer,
+        "ipa_v2": PhonemizeTextTokenizer_v2,
+        "ipa_v3": PhonemizeTextTokenizer_v3,
+        "ipa_v5": PhonemizeTextTokenizer_v5,
+        "ipa_v6": PhonemizeTextTokenizer_v6,
+    }
+    for i, in_language in enumerate(target_languages):
+        ipa_tokenizer = None
+        ref_ipa_tokenizer = None
+        ref_language = None
+        in_language_idx = lang_to_id[in_language]
+        if tokenizer in tokenizer_class_map:
+            ipa_id = get_ipa_id(in_language) 
+            tokenizer_class = tokenizer_class_map[tokenizer]
+            ipa_tokenizer = tokenizer_class(language=ipa_id)
+            if cross_lingual:
+                ref_language= reference_languages[i]
+                ref_ipa_id = get_ipa_id(ref_language)
+                ref_ipa_tokenizer = tokenizer_class(language=ref_ipa_id)
+                ref_language_idx = lang_to_id[ref_language]
         
         if testset == "ls_pc_test_clean":
             data_dir = "/data"
@@ -228,14 +255,14 @@ def main():
             metalst = data_dir + "/meta.lst"
             metainfo = get_seedtts_testset_metainfo(metalst)
             
-        elif testset in ["cv3_eval","lemas_eval","lemas_eval_new"]:
-            data_dir = rel_path + f"/data/{testset}/zero_shot/{in_language}" 
-            print(f"Loading CosyVoice eval data from: {data_dir}")
-            metainfo = get_testset_metainfo(data_dir,in_language)
+        elif testset in ["cv3_eval", "lemas_eval", "lemas_eval_new"]:
+            data_dir = rel_path + f"/data/{testset}/zero_shot/{in_language}"
+            print(f"Loading {testset} data from: {data_dir}")
+            metainfo = get_testset_metainfo(data_dir, in_language, ref_language)
             
-            task_lang_path = data_dir.split(f"{testset}/")[-1] 
-            output_dir = f"results/{task_lang_path}/wavs" # 生成到 results/zero_shot/bg/wavs
-            print(f"Override output_dir to: {output_dir}")
+            # task_lang_path = data_dir.split(f"{testset}/")[-1] # 要改！
+            # output_dir = f"results/{task_lang_path}/wavs" # 生成到 results/zero_shot/bg/wavs
+            # print(f"Override output_dir to: {output_dir}")
 
 
         # path to save genereted wavs
@@ -249,7 +276,11 @@ def main():
             f"{'_no-ref-audio' if no_ref_audio else ''}"
         )
         if testset in ["cv3_eval","lemas_eval", "lemas_eval_new"]:
-            output_dir += f"zero_shot/{in_language}/wavs"
+            if cross_lingual:
+                output_dir += f"zero_shot/{ref_language}_{in_language}/wavs"
+            else:
+                output_dir += f"zero_shot/{in_language}/wavs"
+                
         print(f"will be saved to:{output_dir}")
         
         
@@ -275,21 +306,38 @@ def main():
             normalize_text=args.normalize_text,
             drop_text=False,
             reverse=reverse,
+            sp_type=sp_type,
             model_sp=model_sp,
             device=device,
+            ref_language=ref_language,
+            ref_ipa_tokenizer=ref_ipa_tokenizer,
         )
-
-        
+ 
         # start batch inference
         accelerator.wait_for_everyone()
         start = time.time()
 
         with accelerator.split_between_processes(prompts_all) as prompts:
             for prompt in tqdm(prompts, disable=not accelerator.is_local_main_process):
-                utts, ref_rms_list, ref_mels, ref_mel_lens, total_mel_lens, final_text_list = prompt
+                utts, ref_rms_list, ref_mels, ref_mel_lens, total_mel_lens, final_text_list, ref_text_lens, gen_text_lens = prompt
                 ref_mels = ref_mels.to(device)
                 ref_mel_lens = torch.tensor(ref_mel_lens, dtype=torch.long).to(device)
                 total_mel_lens = torch.tensor(total_mel_lens, dtype=torch.long).to(device)
+                
+                batch_lang_ids = []
+                for r_len, g_len in zip(ref_text_lens, gen_text_lens):
+                    if cross_lingual:
+                        # 法一
+                        ids = [ref_language_idx] * r_len + [in_language_idx] * g_len
+                        # 法二
+                        # ids =  [in_language_idx] * (r_len + g_len)
+                        # 法三
+                        # unk_idx = len(lang_to_id)
+                        # ids = [unk_idx] * r_len + [in_language_idx] * g_len
+                    else:
+                        ids = [in_language_idx] * r_len + [in_language_idx] * g_len
+                    batch_lang_ids.append(torch.tensor(ids))
+                lang_ids_tensor = pad_sequence(batch_lang_ids, batch_first=True, padding_value=0).to(device)
                 
                 with torch.inference_mode():
                     generated, _ = model.sample(
@@ -302,7 +350,7 @@ def main():
                         sway_sampling_coef=sway_sampling_coef,
                         no_ref_audio=no_ref_audio,
                         seed=seed,
-                        language_ids=[in_language],
+                        language_ids=lang_ids_tensor,
                         cfg_schedule=None,
                         reverse=reverse,
                     )

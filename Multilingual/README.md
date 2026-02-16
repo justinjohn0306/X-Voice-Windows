@@ -4,6 +4,8 @@
 ```
 phonemizer
 pythainlp
+pyopenjtalk
+g2pk
 regex
 
 lingua
@@ -26,6 +28,7 @@ python src/f5_tts/train/datasets/prepare_ipa.py --tokenizer ipa_v3 --dataset_nam
   - ipa_v3加入了pinyin，且保留了原始的复音节，仅拆分音节和1，2，3等音调
   - ipa_v4在v3的基础上，对每个单词识别了语种再转换
   - ipa_v5用作在ipa token后面加语言后缀这样的注入形式
+  - ipa_v6在v3的基础上，增加了日语和韩语的g2p。在跑``prepare_ipa.py``的同时，得出每个ipa出现的频率，对于出现频率极少的ipa，如``nɛ``等，不将其放入词表，在查词表转为idx时，不直接将其映射为``<unk>``，而是将其拆分为``n``和``ɛ``分别映射。
 - ``dataset_name``需要以 multilingual 开头
 
 ## 训练
@@ -51,7 +54,7 @@ python src/f5_tts/train/datasets/prepare_ipa.py --tokenizer ipa_v3 --dataset_nam
   - v5: bf16训练，全局时间concat注入
   - tkcat: bf16训练，逐token concat注入，没有加入drop的逻辑
   - langipa: bf16训练，ipa加后缀的形式注入
-  - tkncatv2: bf16训练，在tkncat基础上，调整初始化，并加入随机丢弃language id，概率0.2(待更新)
+  - tkncatv2: bf16训练，在tkncat基础上，调整初始化，并加入随机丢弃language id，概率0.2
 
 ## 测试集的准备
 ```
@@ -78,8 +81,11 @@ python get_testset.py
   xphonebr 
   german-transliterate 
   compound-split
+  pyphen
   ```
 
+
+### intra-lingual
 ```
 bash src/f5_tts/eval/eval_multilingual.sh
 ```
@@ -87,9 +93,23 @@ bash src/f5_tts/eval/eval_multilingual.sh
 - ``dataset``: 测试集名称，可选``lemas_eval_new``, ``lemas_eval``，前者选取10个样本为参考，后者全部样本互为参考和目标；预留选项``cv3_eval``，虽然是叫cv3，但实际是想我们自己基于fleurs等造一个支持更多语言的测试集。
 - ``ckpt``: checkpoint的步数
 - ``exp_name``: 需跟yaml一致
-- ``test_set``: 一个字符串，代表要评测的语言，如：``"zh es fr pt en it de vi id"``（lemas的测试机只支持这9种）
+- ``test_set``: 一个字符串，代表要评测的语言，如：``"zh es fr pt en it de vi id"``（lemas的测试集只支持这9种）
 
-此外，还可以修改 ``eval_infer_batch`` 传入的参数
+
+
+### cross-lingual
+```
+bash src/f5_tts/eval/eval_cross_lingual.sh
+```
+配置的修改同intra-lingual的代码，此外，增加``ref_set``的配置
+- ``ref_set``: 一个字符串，代表prompt的语言，必须与``test_set``等长。
+  - 例如``test_set="en fr", ref_set="fr zh"``，那么将以法语为参考生成英语和以中文为参考生成法语。
+
+### 推理的配置
+在上述两个脚本中，可以修改 ``eval_infer_batch`` 传入的参数
 - ``--normalize_text``: 是否进行文本正则化。正则化模块参见``text_normalizer.py``
-- ``--usesp -ns "SpeedPredict_Base" -cs 20000``: 是否使用语速预测器
+- ``--sp_type / -sp``: 如何预测生成音频的时长。可选``"utf", "syllable", "pretrained"``
+  - ``"utf"``: 默认选项。即根据utf-8字节数的比例来预测。
+  - ``"syllable"``: 根据文本音节数比例来预测。
+  - ``"pretrained"``: 使用预训练的语速预测器。如果选择此选项，需补充实验名``--expnamesp / -ns``和ckpt步数``--ckptstepsp/ -cs``。例如``-ns "SpeedPredict_Base" -cs 20000``
 - ``--reverse``: 是否将参考和目标对换位置
