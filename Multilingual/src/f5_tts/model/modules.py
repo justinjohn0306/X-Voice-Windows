@@ -284,13 +284,13 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
-        self.native_rms_norm = float(torch.__version__[:3]) >= 2.4
+        self.native_rms_norm = False #float(torch.__version__[:3]) >= 2.4
 
     def forward(self, x):
         if self.native_rms_norm:
             if self.weight.dtype in [torch.float16, torch.bfloat16]:
                 x = x.to(self.weight.dtype)
-            x = F.rms_norm(x, normalized_shape=(x.shape[-1],), weight=self.weight, eps=self.eps) # float32
+            x = F.rms_norm(x, normalized_shape=(x.shape[-1],), weight=self.weight, eps=self.eps) 
         else:
             variance = x.to(torch.float32).pow(2).mean(-1, keepdim=True)
             x = x * torch.rsqrt(variance + self.eps)
@@ -298,7 +298,7 @@ class RMSNorm(nn.Module):
                 x = x.to(self.weight.dtype)
             x = x * self.weight
 
-        return x # float32
+        return x
 
 
 # AdaLayerNorm
@@ -317,10 +317,10 @@ class AdaLayerNorm(nn.Module):
             self.norm = RMSNorm(dim, eps=1e-6)
 
     def forward(self, x, emb=None):# emb[b,dim]
-        emb = self.linear(self.silu(emb)) # float16
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = torch.chunk(emb, 6, dim=1)
+        emb = self.linear(self.silu(emb)) 
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = torch.chunk(emb, 6, dim=1) 
 
-        x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None] # float32
+        x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None] 
         return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
 
 
@@ -528,15 +528,15 @@ class AttnProcessor:
         # attention
         inner_dim = key.shape[-1]
         head_dim = inner_dim // attn.heads
-        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2) # 16
+        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2) # 16 后32
         key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2) # 16
         value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2) # 16
 
         # qk norm
         if attn.q_norm is not None:
-            query = attn.q_norm(query) # 32
+            query = attn.q_norm(query)
         if attn.k_norm is not None:
-            key = attn.k_norm(key) # 32
+            key = attn.k_norm(key)
 
         # apply rotary position embedding
         if rope is not None:
@@ -559,7 +559,7 @@ class AttnProcessor:
                 attn_mask = attn_mask.expand(batch_size, attn.heads, query.shape[-2], key.shape[-2])
             else:
                 attn_mask = None
-            x = F.scaled_dot_product_attention(query, key, value, attn_mask=attn_mask, dropout_p=0.0, is_causal=False) # 16
+            x = F.scaled_dot_product_attention(query, key, value, attn_mask=attn_mask, dropout_p=0.0, is_causal=False)
             x = x.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
 
         elif self.attn_backend == "flash_attn":
@@ -585,10 +585,10 @@ class AttnProcessor:
                 x = flash_attn_func(query, key, value, dropout_p=0.0, causal=False)
                 x = x.reshape(batch_size, -1, attn.heads * head_dim)
 
-        x = x.to(query.dtype) # 32
+        x = x.to(query.dtype)
 
         # linear proj
-        x = attn.to_out[0](x) # 16
+        x = attn.to_out[0](x)
         # dropout
         x = attn.to_out[1](x)
 
@@ -775,7 +775,7 @@ class DiTBlock(nn.Module):
         ff_output = self.ff(norm)
         x = x + gate_mlp.unsqueeze(1) * ff_output
 
-        return x # 16
+        return x
 
 
 # MMDiT Block https://arxiv.org/abs/2403.03206
