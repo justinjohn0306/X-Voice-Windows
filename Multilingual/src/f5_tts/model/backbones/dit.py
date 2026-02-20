@@ -59,7 +59,7 @@ class TextEmbedding(nn.Module):
             else:
                 self.lang_embed = nn.Embedding(num_languages + 1, lang_dim) # 加一个维度作为未知语言
             nn.init.normal_(self.lang_embed.weight, std=0.02)
-            if self.infill_lang_type =="token_concat":
+            if self.infill_lang_type in ["token_concat", "mixed_concat"]:
                 self.fusion = nn.Linear(text_dim + lang_dim, text_dim)
                 with torch.no_grad():
                     self.fusion.weight.fill_(0.0)
@@ -154,7 +154,7 @@ class TextEmbedding(nn.Module):
             
             l_emb = self.lang_embed(current_lang_ids) # [b, nt, lang_dim] 
             assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
-            if self.infill_lang_type =="token_concat":
+            if self.infill_lang_type in ["token_concat", "mixed_concat"]:
                 merged = torch.cat([text, l_emb], dim=-1)
                 text = self.fusion(merged) 
             elif self.infill_lang_type == "ada":
@@ -248,16 +248,16 @@ class DiT(nn.Module):
         if self.languages is not None:
             self.lang_to_id = {lang: i for i, lang in enumerate(self.languages)}
             self.num_languages = len(self.languages)
-            if self.infill_lang_type is None or self.infill_lang_type in ["add_only","concat"]: # 如果infill_lang_type为空，默认为"add_only"
+            if self.infill_lang_type is None or self.infill_lang_type in ["add_only", "concat", "mixed_concat"]: # 如果infill_lang_type为空，默认为"add_only"
                 self.lang_embed = nn.Embedding(self.num_languages, dim)
                 nn.init.normal_(self.lang_embed.weight, std=0.02)
-                if self.infill_lang_type == "concat": 
+                if self.infill_lang_type in ["concat", "mixed_concat"]: 
                     self.cond_fusion = nn.Sequential(
                         nn.Linear(dim * 2, dim),
                         nn.SiLU(),
                         nn.Linear(dim, dim)
                     )
-        text_embed_num_langs = self.num_languages if (languages and infill_lang_type in ["token_concat","ada"]) else None
+        text_embed_num_langs = self.num_languages if (languages and infill_lang_type in ["token_concat", "ada", "mixed_concat"]) else None
         if text_dim is None:
             text_dim = mel_dim
         self.text_embed = TextEmbedding(
@@ -419,11 +419,11 @@ class DiT(nn.Module):
                 lang_emb = self.lang_embed(lang_ids_tensor)
                 if not self.infill_lang_type or self.infill_lang_type=="add_only":
                     t += lang_emb
-                elif self.infill_lang_type=="concat":
+                elif self.infill_lang_type in ["concat", "mixed_concat"]:
                     joint_cond = torch.cat([t, lang_emb], dim=-1)
                     t = self.cond_fusion(joint_cond)
             
-        # 如果是 add_only 或者时间上 concat， lang_ids_tensor传进去没有用        
+        # 如果是add_only 或者时间上 concat， lang_ids_tensor传进去没有用        
         if cfg_infer:  # pack cond & uncond forward: b n d -> 2b n d
             x_cond = self.get_input_embed(
                 x, cond, text, drop_audio_cond=False, drop_text=False, cache=cache, audio_mask=mask, lang_ids_tensor=lang_ids_tensor,
