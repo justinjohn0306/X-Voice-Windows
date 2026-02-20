@@ -13,7 +13,6 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.nn.utils.rnn import pad_sequence
 from x_transformers.x_transformers import RotaryEmbedding
 
 from f5_tts.model.modules import (
@@ -87,33 +86,28 @@ class TextEmbedding(nn.Module):
         else:
             self.extra_modeling = False
 
-    def average_upsample_text_by_mask(self, text, text_mask, audio_mask):
-        batch, text_len, text_dim = text.shape
-
-        if audio_mask is None:
-            audio_mask = torch.ones_like(text_mask, dtype=torch.bool)
-        valid_mask = audio_mask & text_mask
-        audio_lens = audio_mask.sum(dim=1)  # [batch]
-        valid_lens = valid_mask.sum(dim=1)  # [batch]
+    def average_upsample_text_by_mask(self, text, text_mask, target_lens):
+        batch, max_seq_len, text_dim = text.shape
+        text_lens = text_mask.sum(dim=1)  # [batch]
 
         upsampled_text = torch.zeros_like(text)
 
         for i in range(batch):
-            audio_len = audio_lens[i].item()
-            valid_len = valid_lens[i].item()
+            text_len = int(text_lens[i].item())
+            audio_len = int(target_lens[i].item())
 
-            if valid_len == 0:
+            if text_len == 0 or audio_len <= 0:
                 continue
 
-            valid_ind = torch.where(valid_mask[i])[0]
-            valid_data = text[i, valid_ind, :]  # [valid_len, text_dim]
+            valid_ind = torch.where(text_mask[i])[0]
+            valid_data = text[i, valid_ind, :]  # [text_len, text_dim]
 
-            base_repeat = audio_len // valid_len
-            remainder = audio_len % valid_len
+            base_repeat = audio_len // text_len
+            remainder = audio_len % text_len
 
             indices = []
-            for j in range(valid_len):
-                repeat_count = base_repeat + (1 if j >= valid_len - remainder else 0)
+            for j in range(text_len):
+                repeat_count = base_repeat + (1 if j >= text_len - remainder else 0)
                 indices.extend([j] * repeat_count)
 
             indices = torch.tensor(indices[:audio_len], device=text.device, dtype=torch.long)
@@ -123,10 +117,23 @@ class TextEmbedding(nn.Module):
 
         return upsampled_text
 
-    def forward(self, text: int["b nt"], seq_len, drop_text=False, audio_mask: bool["b n"] | None = None, language_ids=None):
+    def forward(self, text: int["b nt"], seq_len, drop_text=False, language_ids=None):
         text = text + 1  # use 0 as filler token. preprocess of batch pad -1, see list_str_to_idx()
-        text = text[:, :seq_len]  # curtail if character tokens are more than the mel spec tokens
-        text = F.pad(text, (0, seq_len - text.shape[1]), value=0)  # (opt.) if not self.average_upsampling:
+        valid_pos_mask = None
+        if torch.is_tensor(seq_len):
+            seq_len = seq_len.to(device=text.device, dtype=torch.long)
+            max_seq_len = int(seq_len.max().item())
+        else:
+            max_seq_len = int(seq_len)
+
+        text = text[:, :max_seq_len]  # curtail if character tokens are more than the mel spec tokens
+        text = F.pad(text, (0, max_seq_len - text.shape[1]), value=0)
+
+        if torch.is_tensor(seq_len):
+            seq_pos = torch.arange(max_seq_len, device=text.device).unsqueeze(0)
+            valid_pos_mask = seq_pos < seq_len.unsqueeze(1)
+            text = text.masked_fill(~valid_pos_mask, 0)
+
         if self.mask_padding:
             text_mask = text == 0
 
@@ -134,12 +141,16 @@ class TextEmbedding(nn.Module):
             text = torch.zeros_like(text)
 
         text = self.text_embed(text)  # [b nt] -> [b nt d]
+        if valid_pos_mask is not None:
+            # Keep short-sample tail strictly zero (equivalent to per-sample pad_sequence(..., 0)).
+            text = text.masked_fill(~valid_pos_mask.unsqueeze(-1), 0.0)
+
         # concat language embedding
         if self.num_languages is not None and language_ids is not None:
             if language_ids.dim() == 2: # [b, nt]，用于cross lingual
-                language_ids = language_ids[:, :seq_len]
+                language_ids = language_ids[:, :max_seq_len]
                 # 这里任意pad一个值就好，因为后面concat之后还是要根据text_mask把后面变为0的
-                language_ids = F.pad(language_ids, (0, seq_len - language_ids.shape[1]), value=0) 
+                language_ids = F.pad(language_ids, (0, max_seq_len - language_ids.shape[1]), value=0) 
             else:
                 assert language_ids.dim() == 1 # [b]，用于正常的单一语言
                 # [b] -> [b, 1] -> [b, nt]
@@ -164,8 +175,11 @@ class TextEmbedding(nn.Module):
     
         # possible extra modeling
         if self.extra_modeling:
-            # sinus pos emb
-            text = text + self.freqs_cis[:seq_len, :]
+            # sinus pos emb; for variable seq lengths, only add positions within each sample's valid range.
+            freqs = self.freqs_cis[:max_seq_len, :]
+            if valid_pos_mask is not None:
+                freqs = freqs.unsqueeze(0) * valid_pos_mask.unsqueeze(-1).to(freqs.dtype)
+            text = text + freqs
 
             # convnextv2 blocks
             if self.mask_padding:
@@ -177,7 +191,12 @@ class TextEmbedding(nn.Module):
                 text = self.text_blocks(text)
 
         if self.average_upsampling:
-            text = self.average_upsample_text_by_mask(text, ~text_mask, audio_mask)
+            if torch.is_tensor(seq_len):
+                target_lens = seq_len.to(device=text.device, dtype=torch.long)
+            else:
+                target_lens = torch.full((text.shape[0],), int(seq_len), device=text.device, dtype=torch.long)
+
+            text = self.average_upsample_text_by_mask(text, ~text_mask, target_lens)
 
         return text
 
@@ -299,7 +318,7 @@ class DiT(nn.Module):
         )
         self.long_skip_connection = nn.Linear(dim * 2, dim, bias=False) if long_skip_connection else None
 
-        self.norm_out = AdaLayerNorm_Final(dim,use_rmsnorm)  # final modulation
+        self.norm_out = AdaLayerNorm_Final(dim, use_rmsnorm)  # final modulation
         self.proj_out = nn.Linear(dim, mel_dim)
 
         self.checkpoint_activations = checkpoint_activations
@@ -347,21 +366,10 @@ class DiT(nn.Module):
     ):
         if self.text_uncond is None or self.text_cond is None or not cache:
             if audio_mask is None:
-                text_embed = self.text_embed(text, x.shape[1], drop_text=drop_text, audio_mask=audio_mask, language_ids=lang_ids_tensor)
+                seq_len = x.shape[1]
             else:
-                batch = x.shape[0]
-                seq_lens = audio_mask.sum(dim=1)
-                text_embed_list = []
-                for i in range(batch):
-                    text_embed_i = self.text_embed(
-                        text[i].unsqueeze(0),
-                        seq_lens[i].item(),
-                        drop_text=drop_text,
-                        audio_mask=audio_mask,
-                        language_ids=lang_ids_tensor[i:i+1] if lang_ids_tensor is not None else None,
-                    )
-                    text_embed_list.append(text_embed_i[0])
-                text_embed = pad_sequence(text_embed_list, batch_first=True, padding_value=0)
+                seq_len = audio_mask.sum(dim=1)  # per-sample valid speech length
+            text_embed = self.text_embed(text, seq_len=seq_len, drop_text=drop_text, language_ids=lang_ids_tensor)
             if cache:
                 if drop_text:
                     self.text_uncond = text_embed
@@ -412,7 +420,7 @@ class DiT(nn.Module):
                     )
             elif isinstance(language_ids, torch.Tensor):
                 lang_ids_tensor = language_ids
-            if self.infill_lang_type in ["token_concat","ada"]:
+            if self.infill_lang_type in ["token_concat", "ada"]:
                 pass # lang_ids_tensor将被传到 TextEmbedding
             else:
                 assert lang_ids_tensor.dim() == 1, "add_only or time concat mode do not support cross-lingual texts"
@@ -456,7 +464,7 @@ class DiT(nn.Module):
 
         x = self.norm_out(x, t)
         output = self.proj_out(x)
-        
+
         if self.use_ctc and return_ctc:
             ctc_logits = self.ctc_head(x)
             return output, ctc_logits
