@@ -105,6 +105,16 @@ def list_str_to_idx(
     list_idx_tensors = [torch.tensor([vocab_char_map.get(c, 0) for c in t]) for t in text]  # pinyin or char style
     text = pad_sequence(list_idx_tensors, padding_value=padding_value, batch_first=True)
     return text
+
+def get_ipa_id(in_language: str) -> str:
+    LANG_MAP = {
+        "zh": "cmn",
+        "en": "en-us",
+        "fr": "fr-fr",
+        "pt": "pt-br",
+    }
+    return LANG_MAP.get(in_language, in_language)
+
 # 第一版本 按照_分词，不拆分音节，只拆分音节和声调(123等)
 def str_to_list_ipa(phonemized: str) -> List[str]:
     fields = []
@@ -289,6 +299,7 @@ def str_to_list_ipa_all(ipa_string: str, tokenizer, language_id=None) -> List[st
     elif tokenizer == "ipa_v2":
         fields = str_to_list_ipa_v2(ipa_string)
     elif tokenizer == "ipa_v3":
+        # print("测试，在utils.py line292 取消注释！")
         fields = str_to_list_ipa_v3(ipa_string)
     elif tokenizer == "ipa_v5":
         fields = str_to_list_ipa_v5(ipa_string, lang=language_id)

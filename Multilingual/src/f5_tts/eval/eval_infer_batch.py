@@ -25,10 +25,10 @@ from f5_tts.eval.utils_eval import (
 )
 from f5_tts.infer.utils_infer import load_checkpoint, load_vocoder
 from f5_tts.model import CFM
-from f5_tts.model.utils import get_tokenizer
+from f5_tts.model.utils import get_tokenizer, get_ipa_id
 from f5_tts.eval.module_clf5 import SpeedPredictor
 
-from f5_tts.train.datasets.ipa_tokenizer import PhonemizeTextTokenizer, get_ipa_id
+from f5_tts.train.datasets.ipa_tokenizer import PhonemizeTextTokenizer
 from f5_tts.train.datasets.ipa_v2_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v2
 from f5_tts.train.datasets.ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v3
 from f5_tts.train.datasets.ipa_v4_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v4
@@ -72,6 +72,7 @@ def main():
     parser.add_argument("-l", "--languages", default="en", help="Comma separated list of languages or 'all'")
     parser.add_argument("--normalize_text", action="store_true")
     parser.add_argument("--cfg_strength", default=2.0, type=float)
+    parser.add_argument("--cfg_schedule", default=None, type=str)
     
     parser.add_argument("--cross_lingual", action="store_true")
     parser.add_argument("-rl", "--reference_languages", default=None, help="Comma separated list of languages, length is the same as --languages")
@@ -92,7 +93,7 @@ def main():
     exp_name_sp = args.expnamesp
     ckpt_step_sp = args.ckptstepsp
     reverse = args.reverse
-    
+    cfg_schedule = args.cfg_schedule
     cross_lingual = args.cross_lingual
     
     in2lang = { 
@@ -102,6 +103,7 @@ def main():
         "ko":"korean", "ja":"japanese", "ru":"russian",
         "ro":"romanian","hu":"hungarian","cs":"czech","fi":"finnish","hr":"croatian","sk":"slovak","sl":"slovenian","et":"estonian",
         "lt":"lthuanian","bg":"bulgarian","el":"greek","lv":"latvian","mt":"maltese","sv":"swedish","da":"danish",
+        "yue":"cantonese",
     }
     lang2in = {value: key for key, value in in2lang.items()}
     if args.languages == "all":
@@ -202,7 +204,8 @@ def main():
         vocab_char_map=vocab_char_map,
     ).to(device)
     # model.transformer.checkpoint_activations = False 
-
+    
+        
     ckpt_prefix = rel_path + f"/ckpts/{exp_name}/model_{ckpt_step}"
     if os.path.exists(ckpt_prefix + ".pt"):
         ckpt_path = ckpt_prefix + ".pt"
@@ -211,7 +214,8 @@ def main():
     else:
         ckpt_path = rel_path + f"/{model_cfg.ckpts.save_dir}/model_{ckpt_step}.pt"
     print(f"Loading checkpoint from: {ckpt_path}")
-    model = load_checkpoint(model, ckpt_path, device, use_ema=use_ema)
+    dtype = torch.float32 if mel_spec_type == "bigvgan"  else None
+    model = load_checkpoint(model, ckpt_path, device, dtype=dtype, use_ema=use_ema)
     # model = accelerator.prepare(model)
     
     lang_to_id = model.transformer.lang_to_id
@@ -227,7 +231,7 @@ def main():
         ipa_tokenizer = None
         ref_ipa_tokenizer = None
         ref_language = None
-        in_language_idx = lang_to_id[in_language]
+        in_language_idx = lang_to_id.get(in_language, len(lang_to_id))
         if tokenizer in tokenizer_class_map:
             ipa_id = get_ipa_id(in_language) 
             tokenizer_class = tokenizer_class_map[tokenizer]
@@ -236,7 +240,7 @@ def main():
                 ref_language= reference_languages[i]
                 ref_ipa_id = get_ipa_id(ref_language)
                 ref_ipa_tokenizer = tokenizer_class(language=ref_ipa_id)
-                ref_language_idx = lang_to_id[ref_language]
+                ref_language_idx = lang_to_id.get(in_language, len(lang_to_id))
         
         if testset == "ls_pc_test_clean":
             data_dir = "/data"
@@ -255,7 +259,7 @@ def main():
             metalst = data_dir + "/meta.lst"
             metainfo = get_seedtts_testset_metainfo(metalst)
             
-        elif testset in ["cv3_eval", "lemas_eval", "lemas_eval_new"]:
+        elif testset in ["cv3_eval", "lemas_eval", "lemas_eval_new", "mixed_eval"]:
             data_dir = rel_path + f"/data/{testset}/zero_shot/{in_language}"
             print(f"Loading {testset} data from: {data_dir}")
             metainfo = get_testset_metainfo(data_dir, in_language, ref_language)
@@ -275,7 +279,7 @@ def main():
             f"{'_gt-dur' if use_truth_duration else ''}"
             f"{'_no-ref-audio' if no_ref_audio else ''}"
         )
-        if testset in ["cv3_eval","lemas_eval", "lemas_eval_new"]:
+        if testset in ["cv3_eval","lemas_eval", "lemas_eval_new", "mixed_eval"]:
             if cross_lingual:
                 output_dir += f"zero_shot/{ref_language}_{in_language}/wavs"
             else:
@@ -334,12 +338,12 @@ def main():
                         # 法三
                         # unk_idx = len(lang_to_id)
                         # ids = [unk_idx] * r_len + [in_language_idx] * g_len
-                    else: # 非cross-lingual (cross-lingual 的 add_only 或 time concat 后面处理)
+                    else:
                         ids = [in_language_idx] * r_len + [in_language_idx] * g_len
                     batch_lang_ids.append(torch.tensor(ids))
-                lang_ids_tensor = pad_sequence(batch_lang_ids, batch_first=True, padding_value=0).to(device)
+                lang_ids_tensor = pad_sequence(batch_lang_ids, batch_first=True, padding_value=in_language_idx).to(device)
                 
-                if infill_lang_type in ["add_only", "concat"]: # 如果使用add_only 或 concat，只能用之前的版本传入目标语言字符串
+                if infill_lang_type in ["add_only", "mixed_concat", "concat", "tkncat"]: # 如果使用add_only 或 concat，只能用之前的版本传入目标语言字符串
                     lang_ids_tensor = [in_language]
                 
                 with torch.inference_mode():
@@ -354,7 +358,7 @@ def main():
                         no_ref_audio=no_ref_audio,
                         seed=seed,
                         language_ids=lang_ids_tensor,
-                        cfg_schedule=None,
+                        cfg_schedule=cfg_schedule,
                         reverse=reverse,
                     )
                     # Final result
