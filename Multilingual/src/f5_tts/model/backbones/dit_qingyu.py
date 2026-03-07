@@ -277,9 +277,9 @@ class DiT(nn.Module):
             if self.infill_lang_type in ["add_only", "mixed_add", "time_concat", "mixed_concat"]:
                 if not drop_lang_in_time:
                     print("[debug]: if you want to drop language id in t, please set drop_lang_in_time to True.")
-                    self.lang_embed = nn.Embedding(self.num_languages, lang_dim_in_t)
+                    self.lang_embed = nn.Embedding(self.num_languages, self.lang_dim_in_t)
                 else:
-                    self.lang_embed = nn.Embedding(self.num_languages + 1, lang_dim_in_t)
+                    self.lang_embed = nn.Embedding(self.num_languages + 1, self.lang_dim_in_t)
                 nn.init.normal_(self.lang_embed.weight, std=0.02)
                 
                 if self.infill_lang_type in ["time_concat", "mixed_concat"]:  
@@ -442,6 +442,7 @@ class DiT(nn.Module):
         cache: bool = False,
         language_ids: list[str] | torch.Tensor = None, # 在新逻辑里面，应该在外部就把lang_to_id做好，传进来一个tensor
         return_ctc: bool = False,
+        layered: bool = False,
     ):
         batch, seq_len = x.shape[0], x.shape[1]
         if time.ndim == 0:
@@ -472,12 +473,17 @@ class DiT(nn.Module):
             if self.languages is not None and self.infill_lang_type in ["add_only", "mixed_add", "time_concat", "mixed_concat"]:
                 # 如果是 [b, nt]，取最后一个 token 代表目标语种
                 g_lang_ids = curr_lang_ids if curr_lang_ids.dim() == 1 else curr_lang_ids[:, -1]
+                # print(d_text, d_lang, g_lang_ids)
                 l_emb = self.lang_embed(g_lang_ids)
                 if self.infill_lang_type in ["add_only", "mixed_add"]:
                     # DiT Additive 融合
                     t_branch = t_branch + self.lang_proj(l_emb)
                 elif self.infill_lang_type in ["time_concat", "mixed_concat"]:
                     t_branch = self.cond_fusion(torch.cat([t_branch, l_emb], dim=-1))
+            if lang_ids_tensor is not None:
+                if d_lang:
+                    curr_lang_ids = torch.full_like(curr_lang_ids, self.num_languages)
+                
             x_embed = self.get_input_embed(
                 x, cond, text, 
                 drop_audio_cond=d_audio, 
@@ -490,12 +496,19 @@ class DiT(nn.Module):
             return x_embed, t_branch
                 
         
-        if cfg_infer:  # pack cond & uncond forward: b n d -> 2b n d
+        if cfg_infer and not layered:  # pack cond & uncond forward: b n d -> 2b n d
             x_cond, t_cond = get_branch_inputs(False, False, False)
-            x_uncond, t_uncond = get_branch_inputs(True, True, True)
+            x_uncond, t_uncond = get_branch_inputs(True, True, False)
             x = torch.cat((x_cond, x_uncond), dim=0)
             t = torch.cat((t_cond, t_uncond), dim=0)
             mask = torch.cat((mask, mask), dim=0) if mask is not None else None
+        elif layered:
+            x_cond, t_cond = get_branch_inputs(False, False, False) # 都不drop
+            x_text, t_text = get_branch_inputs(False, False, True) # drop 语种
+            x_uncond, t_uncond = get_branch_inputs(True, True, True) # drop 三个
+            x = torch.cat((x_cond, x_text, x_uncond), dim=0)
+            t = torch.cat((t_cond, t_text, t_uncond), dim=0)
+            mask = torch.cat((mask, mask, mask), dim=0) if mask is not None else None
         else:
             x, t = get_branch_inputs(drop_audio_cond, drop_text, drop_lang)
 

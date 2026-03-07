@@ -73,6 +73,8 @@ def main():
     parser.add_argument("--normalize_text", action="store_true")
     parser.add_argument("--cfg_strength", default=2.0, type=float)
     parser.add_argument("--cfg_schedule", default=None, type=str)
+    parser.add_argument("--cfg_strength2", default=0.0, type=float)
+    parser.add_argument("--layered", action="store_true")
     
     parser.add_argument("--cross_lingual", action="store_true")
     parser.add_argument("-rl", "--reference_languages", default=None, help="Comma separated list of languages, length is the same as --languages")
@@ -133,6 +135,8 @@ def main():
 
     infer_batch_size = 1  # max frames. 1 for ddp single inference (recommended)
     cfg_strength = args.cfg_strength
+    cfg_strength2 = args.cfg_strength2
+    layered = args.layered
     speed = 1.0
     use_truth_duration = False
     no_ref_audio = False
@@ -270,15 +274,26 @@ def main():
 
 
         # path to save genereted wavs
-        output_dir = (
-            f"{rel_path}/"
-            f"results/{exp_name}_{ckpt_step}/{testset}/"
-            f"seed{seed}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
-            f"{f'_ss{sway_sampling_coef}' if sway_sampling_coef else ''}"
-            f"_cfg{cfg_strength}_speed{speed}"
-            f"{'_gt-dur' if use_truth_duration else ''}"
-            f"{'_no-ref-audio' if no_ref_audio else ''}"
-        )
+        if not layered:
+            output_dir = (
+                f"{rel_path}/"
+                f"results/{exp_name}_{ckpt_step}/{testset}/"
+                f"seed{seed}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
+                f"{f'_ss{sway_sampling_coef}' if sway_sampling_coef else ''}"
+                f"_cfg{cfg_strength}_speed{speed}"
+                f"{'_gt-dur' if use_truth_duration else ''}"
+                f"{'_no-ref-audio' if no_ref_audio else ''}"
+            )
+        else:
+            output_dir = (
+                f"{rel_path}/"
+                f"results/{exp_name}_{ckpt_step}_layered/{testset}/"
+                f"seed{seed}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
+                f"{f'_ss{sway_sampling_coef}' if sway_sampling_coef else ''}"
+                f"_cfgI{cfg_strength}_cfgII{cfg_strength2}_speed{speed}"
+                f"{'_gt-dur' if use_truth_duration else ''}"
+                f"{'_no-ref-audio' if no_ref_audio else ''}"
+            )
         if testset in ["cv3_eval","lemas_eval", "lemas_eval_new", "mixed_eval"]:
             if cross_lingual:
                 output_dir += f"zero_shot/{ref_language}_{in_language}/wavs"
@@ -360,6 +375,8 @@ def main():
                         language_ids=lang_ids_tensor,
                         cfg_schedule=cfg_schedule,
                         reverse=reverse,
+                        cfg_strength2=cfg_strength2,
+                        layered=layered,
                     )
                     # Final result
                     for i, gen in enumerate(generated):

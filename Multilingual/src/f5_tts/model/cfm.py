@@ -107,8 +107,10 @@ class CFM(nn.Module):
         edit_mask=None,
         language_ids:  list[str] | torch.Tensor | None = None, 
         cfg_schedule=None,
-        cfg_decay_start=0.0,
+        cfg_decay_time=0.0, # for cfg_schedule
         reverse=False,
+        layered=False,
+        cfg_strength2=0.0, # for layered cfg
     ):
         self.eval()
         # raw wave
@@ -185,15 +187,18 @@ class CFM(nn.Module):
 
             # predict flow (cond)
             current_cfg = cfg_strength
+            current_cfg2 = cfg_strength2
             if cfg_schedule == "linear":
-                if t > cfg_decay_start:
+                if t > cfg_decay_time:
                     # linear decline
                     current_cfg = cfg_strength * ((1 - t) ** 2)
+                    current_cfg2 = cfg_strength2 * ((1 - t) ** 2)
             elif cfg_schedule == "cosine":
-                if t > cfg_decay_start:
+                if t > cfg_decay_time:
                     # cosine decline
-                    normalized_t = (t - cfg_decay_start) / (1.0 - cfg_decay_start)
+                    normalized_t = (t - cfg_decay_time) / (1.0 - cfg_decay_time)
                     current_cfg = cfg_strength * torch.cos(0.5 * torch.pi * normalized_t)
+                    current_cfg2 = cfg_strength2 * torch.cos(0.5 * torch.pi * normalized_t)
             if cfg_strength < 1e-5:
                 pred = self.transformer(
                     x=x,
@@ -219,10 +224,14 @@ class CFM(nn.Module):
                 cfg_infer=True,
                 cache=True,
                 language_ids=language_ids,
+                layered=layered,
             )
-            pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
-            # v_guided = v_cond + s * (v_cond - v_uncond)
-            res = pred + (pred - null_pred) * current_cfg
+            if layered:
+                pred, text_pred, null_pred = torch.chunk(pred_cfg, 3, dim=0)
+                res = null_pred + (1.0 + current_cfg) * (pred - text_pred) + (1.0 + current_cfg2) * (text_pred - null_pred)
+            else:
+                pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
+                res = pred + (pred - null_pred) * current_cfg
             # print(res.max(),res.min())
             # res = res.clamp(-10, 10)
             
