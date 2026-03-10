@@ -288,9 +288,11 @@ class RMSNorm(nn.Module):
 
     def forward(self, x):
         if self.native_rms_norm:
-            if self.weight.dtype in [torch.float16, torch.bfloat16]:
-                x = x.to(self.weight.dtype)
-            x = F.rms_norm(x, normalized_shape=(x.shape[-1],), weight=self.weight, eps=self.eps)
+            # if self.weight.dtype in [torch.float16, torch.bfloat16]:
+            #     x = x.to(self.weight.dtype)
+            # x = F.rms_norm(x, normalized_shape=(x.shape[-1],), weight=self.weight, eps=self.eps)
+            input_dtype = x.dtype
+            x = F.rms_norm(x.float(), normalized_shape=(x.shape[-1],), weight=self.weight, eps=self.eps).to(input_dtype)
         else:
             variance = x.to(torch.float32).pow(2).mean(-1, keepdim=True)
             x = x * torch.rsqrt(variance + self.eps)
@@ -329,8 +331,8 @@ class AdaLayerNorm(nn.Module):
             self.norm = RMSNorm(dim, eps=1e-6)
 
     def forward(self, x, emb=None):# emb[b,dim]
-        emb = self.linear(self.silu(emb))
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = torch.chunk(emb, 6, dim=1)
+        emb = self.linear(self.silu(emb)) # 16
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = torch.chunk(emb, 6, dim=1) # 16
 
         x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None]
         return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
@@ -781,20 +783,33 @@ class DiTBlock(nn.Module):
         else:
             self.ff = FeedForward(dim=dim, mult=ff_mult, dropout=dropout, approximate="tanh")
 
-    def forward(self, x, t, mask=None, rope=None):  # x: noised input, t: time embedding
-        # pre-norm & modulation for attention input
-        norm, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.attn_norm(x, emb=t)
-        # attention
-        attn_output = self.attn(x=norm, mask=mask, rope=rope)
+    def forward(self, x, t, mask=None, rope=None, infer_mode=False):  # x: noised input, t: time embedding
+        if infer_mode:
+            x = x.to(torch.float32)
+            norm, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.attn_norm(x, emb=t)
+            norm = norm.to(torch.float16)
+            attn_output = self.attn(x=norm, mask=mask, rope=rope) # 16下运算
 
-        # process attention output for input x
-        x = x + gate_msa.unsqueeze(1) * attn_output
+            # process attention output for input x
+            x = x + gate_msa.unsqueeze(1) * attn_output # 32下运算
+            norm = self.ff_norm(x) * (1 + scale_mlp[:, None]) + shift_mlp[:, None] # 32下运算
+            norm = norm.to(torch.float16)
+            ff_output = self.ff(norm).to(torch.float32) # 16下运算
+            x = x + gate_mlp.unsqueeze(1) * ff_output # 32下运算
 
-        norm = self.ff_norm(x) * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
-        ff_output = self.ff(norm)
-        x = x + gate_mlp.unsqueeze(1) * ff_output
+        else:
+            # pre-norm & modulation for attention input
+            norm, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.attn_norm(x, emb=t)
+            # attention
+            attn_output = self.attn(x=norm, mask=mask, rope=rope)
+            # process attention output for input x
+            x = x + gate_msa.unsqueeze(1) * attn_output
+            
+            norm = self.ff_norm(x) * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
+            ff_output = self.ff(norm)
+            x = x + gate_mlp.unsqueeze(1) * ff_output
 
-        return x
+        return x 
 
 
 # MMDiT Block https://arxiv.org/abs/2403.03206

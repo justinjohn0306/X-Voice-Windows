@@ -208,6 +208,7 @@ def get_syllable_count(text: str, lang: str) -> int:
         clean_text = re.sub(r"\s+", "", text) 
         # print(clean_text, len(clean_text))
         return len(clean_text)
+    
     if lang == "vi":
         return len(text.split())
     # 获取 Pyphen 对应的字典代码
@@ -295,50 +296,7 @@ def get_inference_prompt(
         # Audio
         try:
             ref_audio, ref_sr = torchaudio.load(prompt_wav)
-            # cut slience part
-            # SILENCE_THRESHOLD = 0.01
-            # MAX_SILENCE_SEC = 2.0
-            # LOW_THRESHOLD = 0.05
-
-            # 
-            # if ref_audio.shape[0] > 1:
-            #     amplitude = torch.mean(ref_audio.abs(), dim=0)
-            # else:
-            #     amplitude = ref_audio.abs().squeeze(0)
-
-            # # find all non silent indices
-            # non_silent_indices = torch.where(amplitude > SILENCE_THRESHOLD)[0]
-            # is_low = torch.where(amplitude > LOW_THRESHOLD)[0]
-            # if len(is_low) == 0:
-            #     print(f"Skipping silent audio:{prompt_wav}")
-            #     continue
-            # else:
-            #     first_non_silent = non_silent_indices[0].item()
-            #     last_non_silent = non_silent_indices[-1].item()
-                
-            #     # check slience at the beginning
-            #     start_silence_duration = first_non_silent / ref_sr
-            #     new_start = 0
-            #     if start_silence_duration > MAX_SILENCE_SEC:
-            #         # 裁剪到声音开始的地方减去0.5秒
-            #         new_start = max(0,first_non_silent - int(0.5* ref_sr))
-            #         # print(f"Trimmed start silence for {utt}: {start_silence_duration:.2f}s")
-
-            #     # check slience at the end
-            #     end_silence_duration = (ref_audio.shape[-1] - last_non_silent) / ref_sr
-            #     new_end = ref_audio.shape[-1]
-            #     if end_silence_duration > MAX_SILENCE_SEC:
-            #         # 0.5s more
-            #         new_end = min(last_non_silent + int(0.5* ref_sr), ref_audio.shape[-1])
-                    
-            #     # apply cutting
-            #     if new_start > 0 or new_end < ref_audio.shape[-1]:
-            #         ref_audio = ref_audio[:, new_start:new_end]
-            #         debug_wav_path = prompt_wav[:-4]+"cut.wav"
-            #         # save new audio to test
-            #         torchaudio.save(debug_wav_path, ref_audio, ref_sr)
-            #         print(f"Cut_radio:{prompt_wav}")
-            # ============================================================
+            
             ref_rms = torch.sqrt(torch.mean(torch.square(ref_audio)))
             if ref_rms < target_rms:
                 ref_audio = ref_audio * target_rms / ref_rms

@@ -211,6 +211,7 @@ class CFM(nn.Module):
                     drop_lang=False,
                     cache=True,
                     language_ids=language_ids,
+                    infer_mode=True,
                 )
                 return pred
 
@@ -225,15 +226,21 @@ class CFM(nn.Module):
                 cache=True,
                 language_ids=language_ids,
                 layered=layered,
+                infer_mode=True,
             )
             if layered:
                 pred, text_pred, null_pred = torch.chunk(pred_cfg, 3, dim=0)
                 res = null_pred + (1.0 + current_cfg) * (pred - text_pred) + (1.0 + current_cfg2) * (text_pred - null_pred)
+                # if 0.3 < t < 0.6:
+                #     delta_content = text_pred - null_pred  # 内容增量
+                #     delta_lang = pred - text_pred      # 语种增量
+                #     a = delta_content.reshape(delta_content.shape[0], -1)
+                #     b = delta_lang.reshape(delta_lang.shape[0], -1)
+                #     sim = torch.nn.functional.cosine_similarity(a, b, dim=1, eps=1e-8)
+                #     print(f"sim: {sim}, content.mean: {delta_content.mean()}, lang.mean: {delta_lang.mean()}")
             else:
                 pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
                 res = pred + (pred - null_pred) * current_cfg
-            # print(res.max(),res.min())
-            # res = res.clamp(-10, 10)
             
             # # 缩放res
             # rescale_phi = 0.7             
