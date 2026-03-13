@@ -34,27 +34,25 @@ python src/f5_tts/train/datasets/prepare_ipa.py --tokenizer ipa_v3 --dataset_nam
 ## 训练
 - 关于yaml文件，在F5TTS_v1_Base的基础上：
   - ``languages``: 将所有语言的简称通过列表形式传进去
-  - ``infill_lang_type``: language id的注入方式
+  - ``time_infill_lang_type``: language id在时间的注入方式
     - add_only: 直接和时间相加
-    - concat: 和时间拼接
+    - time_concat: 和时间拼接
+  - ``time_infill_lang_type``: language id在text token的注入方式
     - token_concat: 逐token拼接
-    - ada: 逐token相加调制，没有深入尝试过
-    - 如果使用加在ipa token后面加后缀的形式，这里可以选择concat，然后注入通过使用ipa_v5来实现
+    - ada: 逐token相加调制
   - ``use_swiglu`` 和 ``use_rmsnorm``: 基于 linghting dit的改进，设置为true后sim会好一点，但参数量会大，可能要改batch size
-  - ``use_ctc``: 是否加上ctc loss，一般选false
-  - ``lang_dim``: language id embedding层的维度，默认为与text embedding相同，但为了前向支持，代码做了一些修改，请显式指定
-  - ``lang_dropout_prob``: 丢弃language id 的概率，这里丢弃实现在创建language id embedding时增加一个虚拟的语言，drop的时候将其embed到这个虚拟语言
-
+  - ``use_ctc``: 是否加上ctc loss，一般选False
+  - ``lang_dim``, ``lang_dim_in_t``: language id embedding层的维度
+  - ``lang_drop_prob``, ``cond_drop_prob``: 只丢弃语言和同时丢弃语言和文本的概率
+  - ``share_lang_embed``: 时间和文本是否共用language embedding
+  - ``pretrained_path``, ``freeze_update``加载原版ckpt做transfer learning，并可以指定前面几万步冻结DiT参数
 - 将``src/f5_tts/model/dataset.py``的``root_dir``改到metadata所在的目录
+
 
 - 使用bf16训练
 
 - ckpt参见 https://huggingface.co/XRXRX/Multilingual-F5-TTS ，配置可以参考config中对应名字的文件
-  - v4: fp16训练，全局时间concat注入，scale到约500M，rmsnorm，swiglu
-  - v5: bf16训练，全局时间concat注入
-  - tkcat: bf16训练，逐token concat注入，没有加入drop的逻辑
-  - langipa: bf16训练，ipa加后缀的形式注入
-  - tkncatv2: bf16训练，在tkncat基础上，调整初始化，并加入随机丢弃language id，概率0.2
+  - catada: 时间上使用time_concat，文本上使用ada，具体见配置文件
 
 ## 测试集的准备
 ```
@@ -79,8 +77,9 @@ python get_testset.py
   nemo_text_processing
   WeTextProcessing 
   xphonebr 
-  german-transliterate 
-  compound-split
+  ctranslate2==4.5.0
+  tts-preprocess-et
+  bg-text-normalizer
   pyphen
   ```
 
@@ -90,7 +89,7 @@ python get_testset.py
 bash src/f5_tts/eval/eval_multilingual.sh
 ```
 需要修改这个脚本前面几行的配置
-- ``dataset``: 测试集名称，可选``lemas_eval_new``, ``lemas_eval``，前者选取10个样本为参考，后者全部样本互为参考和目标；预留选项``cv3_eval``，虽然是叫cv3，但实际是想我们自己基于fleurs等造一个支持更多语言的测试集。
+- ``dataset``: 测试集名称，可选``lemas_eval_new``, ``lemas_eval``，前者选取10个样本为参考，后者全部样本互为参考和目标；预留选项``mixed_eval``，我们自己构造的支持更多语言的测试集。
 - ``ckpt``: checkpoint的步数
 - ``exp_name``: 需跟yaml一致
 - ``test_set``: 一个字符串，代表要评测的语言，如：``"zh es fr pt en it de vi id"``（lemas的测试集只支持这9种）
@@ -113,3 +112,5 @@ bash src/f5_tts/eval/eval_cross_lingual.sh
   - ``"syllable"``: 根据文本音节数比例来预测。
   - ``"pretrained"``: 使用预训练的语速预测器。如果选择此选项，需补充实验名``--expnamesp / -ns``和ckpt步数``--ckptstepsp/ -cs``。例如``-ns "SpeedPredict_Base" -cs 20000``
 - ``--reverse``: 是否将参考和目标对换位置
+- ``--layered``: 是否使用分层cfg推理（推荐先不开）
+- ``--cfg_schedule=linear``,``--cfg_decay_time=0.6``在推理后期降低cfg强度，精细打磨声学细节

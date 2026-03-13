@@ -11,3 +11,4 @@ xphonebr
 ctranslate2==4.5.0
 tts-preprocess-et
 bg-text-normalizer
+pyphen
