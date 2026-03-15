@@ -9,6 +9,6 @@ nemo_text_processing
 WeTextProcessing 
 xphonebr 
 ctranslate2==4.5.0
-tts-preprocess-et
-bg-text-normalizer
 pyphen
+bg-text-normalizer
+git+https://github.com/TartuNLP/tts_preprocess_et.git
