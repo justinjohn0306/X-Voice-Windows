@@ -33,6 +33,8 @@ def main(inference_cfg):
     vocab_char_map, vocab_size = get_tokenizer(tokenizer_path, tokenizer)
 
     # set model
+    cfg.model.arch.attn_backend = "flash_attn"
+    cfg.model.arch.attn_mask_enabled = True
     model = CFM(
         transformer=model_cls(**model_arc, text_num_embeds=vocab_size, mel_dim=cfg.model.mel_spec.n_mel_channels),
         mel_spec_kwargs=cfg.model.mel_spec,
