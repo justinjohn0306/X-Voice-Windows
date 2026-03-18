@@ -24,9 +24,10 @@ from f5_tts.model.utils import (
     default,
     exists,
     get_epss_timesteps,
-    lens_to_mask,
-    list_str_to_idx,
-    bpe_padded,
+    lens_to_mask,    
+    list_str_to_idx, list_str_to_idx_ipa, list_list_to_idx,
+    list_str_to_tensor,
+    # bpe_padded,
     mask_from_frac_lengths,
 )
 
@@ -35,6 +36,7 @@ class CFM(nn.Module):
     def __init__(
         self,
         transformer: nn.Module,
+        tokenizer = "char", 
         sigma=0.0,
         odeint_kwargs: dict = dict(
             # atol = 1e-5,
@@ -43,11 +45,13 @@ class CFM(nn.Module):
         ),
         audio_drop_prob=0.3,
         cond_drop_prob=0.2,
+        lang_drop_prob=0.0,
         num_channels=None,
         mel_spec_module: nn.Module | None = None,
         mel_spec_kwargs: dict = dict(),
         frac_lengths_mask: tuple[float, float] = (0.7, 1.0),
         vocab_char_map: dict[str:int] | None = None,
+        ctc_loss_weight: float = 0.1
     ):
         super().__init__()
 
@@ -61,7 +65,8 @@ class CFM(nn.Module):
         # classifier-free guidance
         self.audio_drop_prob = audio_drop_prob
         self.cond_drop_prob = cond_drop_prob
-
+        self.lang_drop_prob = lang_drop_prob
+        print(f"[debug]: {audio_drop_prob=}, {cond_drop_prob=}(text, audio, and language), {lang_drop_prob=}(language).")
         # transformer
         self.transformer = transformer
         dim = transformer.dim
@@ -75,6 +80,8 @@ class CFM(nn.Module):
 
         # vocab map for tokenization
         self.vocab_char_map = vocab_char_map
+        self.tokenizer = tokenizer
+        self.ctc_loss_weight = ctc_loss_weight
 
     @property
     def device(self):
@@ -92,7 +99,7 @@ class CFM(nn.Module):
         cfg_strength=1.0,
         sway_sampling_coef=None,
         seed: int | None = None,
-        max_duration=4096,
+        max_duration=8192,
         vocoder: Callable[[float["b d n"]], float["b nw"]] | None = None,
         use_epss=True,
         no_ref_audio=False,
@@ -232,7 +239,7 @@ class CFM(nn.Module):
     def sample_reverse(
         self,
         cond: float["b n d"] | float["b nw"],  # noqa: F722
-        text: int["b nt"] | list[str],  # noqa: F722
+        text: int["b nt"] | list[str] | list[list[str]],
         duration: int | int["b"],  # noqa: F821
         *,
         lens: int["b"] | None = None,  # noqa: F821
@@ -247,6 +254,13 @@ class CFM(nn.Module):
         duplicate_test=False,
         t_inter=0.1,
         edit_mask=None,
+        language_ids:  list[str] | torch.Tensor | None = None, 
+        cfg_schedule=None,
+        cfg_decay_time=0.0, # for cfg_schedule
+        layered=False,
+        cfg_strength2=0.0, # for layered cfg
+        infer_mode=True,
+        prompt_ids: torch.Tensor | None = None,
     ):
         self.eval()
         # raw wave
@@ -264,12 +278,19 @@ class CFM(nn.Module):
 
         # text
 
-        if isinstance(text, list):
+        if isinstance(text, list) and isinstance(text[0],str):
             if exists(self.vocab_char_map):
-                text = list_str_to_idx(text, self.vocab_char_map).to(device)
+                if self.tokenizer.startswith("ipa"):
+                    text = list_str_to_idx_ipa(text, self.vocab_char_map, self.tokenizer, language_ids=language_ids).to(device)
+                else:
+                    text = list_str_to_idx(text, self.vocab_char_map).to(device)
             else:
-                text = bpe_padded(text).to(device)
+                text = list_str_to_tensor(text).to(device)
             assert text.shape[0] == batch
+        elif isinstance(text, list) and isinstance(text[0],list):
+            assert exists(self.vocab_char_map)
+            text = list_list_to_idx(text, self.vocab_char_map).to(device)
+
 
         # duration
 
@@ -339,6 +360,19 @@ class CFM(nn.Module):
             # step_cond = torch.where(cond_mask, cond, torch.zeros_like(cond))
 
             # predict flow (cond)
+            current_cfg = cfg_strength
+            current_cfg2 = cfg_strength2
+            if cfg_schedule == "linear":
+                if t > cfg_decay_time:
+                    # linear decline
+                    current_cfg = cfg_strength * ((1 - t) ** 2)
+                    current_cfg2 = cfg_strength2 * ((1 - t) ** 2)
+            elif cfg_schedule == "cosine":
+                if t > cfg_decay_time:
+                    # cosine decline
+                    normalized_t = (t - cfg_decay_time) / (1.0 - cfg_decay_time)
+                    current_cfg = cfg_strength * torch.cos(0.5 * torch.pi * normalized_t)
+                    current_cfg2 = cfg_strength2 * torch.cos(0.5 * torch.pi * normalized_t)
             if cfg_strength < 1e-5:
                 pred = self.transformer(
                     x=x,
@@ -348,7 +382,10 @@ class CFM(nn.Module):
                     mask=mask,
                     drop_audio_cond=False,
                     drop_text=False,
+                    drop_lang=False,
                     cache=True,
+                    language_ids=language_ids,
+                    infer_mode=infer_mode,
                 )
                 return pred
 
@@ -361,9 +398,25 @@ class CFM(nn.Module):
                 mask=mask,
                 cfg_infer=True,
                 cache=True,
+                language_ids=language_ids,
+                layered=layered,
+                infer_mode=infer_mode,
+                prompt_ids=prompt_ids,
             )
-            pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
-            return pred + (pred - null_pred) * cfg_strength
+
+            if layered:
+                pred, text_pred, null_pred = torch.chunk(pred_cfg, 3, dim=0)
+                delta_lang = pred - text_pred
+                delta_content = text_pred - null_pred  # 内容增量：从噪音到“平均发音”
+                res = null_pred + (1.0 + current_cfg2) * delta_content + (1.0 + current_cfg) * delta_lang
+                #res = null_pred + (1.0 + current_cfg) * (pred - text_pred) + (1.0 + current_cfg2) * (text_pred - null_pred)
+                if 0.3 < t < 0.6:
+                    print(f"content.mean: {delta_content.mean()}, lang.mean: {delta_lang.mean()}") 
+            else:
+                pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
+                res = pred + (pred - null_pred) * current_cfg
+            return res
+       
 
         # noise input
         # to make sure batch inference result is same with different batch size, and for sure single inference
@@ -397,6 +450,8 @@ class CFM(nn.Module):
         if exists(vocoder):
             out = out.permute(0, 2, 1)
             out = vocoder(out)
+        if torch.isnan(out).any():
+            print("Detected NaN in generated buffer!")
 
         return out, trajectory
 
@@ -407,6 +462,7 @@ class CFM(nn.Module):
         *,
         lens: int["b"] | None = None,
         noise_scheduler: str | None = None,
+        language_ids: list[str] | torch.Tensor | None, # 在 cross lingual中，传到cfm的就是id数字了
     ):
         # handle raw wave
         if inp.ndim == 2:
@@ -419,9 +475,13 @@ class CFM(nn.Module):
         # handle text as string
         if isinstance(text, list):
             if exists(self.vocab_char_map):
-                text = list_str_to_idx(text, self.vocab_char_map).to(device)
+                pre_text=text
+                if self.tokenizer.startswith("ipa"):
+                    text = list_str_to_idx_ipa(text, self.vocab_char_map, self.tokenizer, language_ids=language_ids).to(device)
+                else:
+                    text = list_str_to_idx(text, self.vocab_char_map).to(device)
             else:
-                text = bpe_padded(text).to(device)
+                text = list_str_to_tensor(text).to(device) # [batch_size,squence_len]
             assert text.shape[0] == batch
 
         # lens and mask
@@ -456,15 +516,22 @@ class CFM(nn.Module):
 
         # transformer and cfg training with a drop rate
         drop_audio_cond = random() < self.audio_drop_prob  # p_drop in voicebox paper
-        if random() < self.cond_drop_prob:  # p_uncond in voicebox paper
+        rand = random()
+        if rand < self.cond_drop_prob:  # p_uncond in voicebox paper
             drop_audio_cond = True
             drop_text = True
+            drop_lang = True
+        elif rand < self.cond_drop_prob + self.lang_drop_prob:
+            drop_text = False
+            drop_lang = True
         else:
             drop_text = False
-
+            drop_lang = False
         # apply mask will use more memory; might adjust batchsize or batchsampler long sequence threshold
         pred = self.transformer(
-            x=φ, cond=cond, text=text, time=time, drop_audio_cond=drop_audio_cond, drop_text=drop_text, mask=mask
+            x=φ, cond=cond, text=text, time=time, drop_audio_cond=drop_audio_cond, drop_text=drop_text, drop_lang=drop_lang,
+            mask=mask, language_ids=language_ids, 
+            return_ctc=False,
         )
 
         # flow matching loss

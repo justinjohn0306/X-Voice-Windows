@@ -10,10 +10,13 @@ from tqdm import tqdm
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs, InitProcessGroupKwargs
 from torch.utils.data import DataLoader, Dataset, SequentialSampler
-
+from f5_tts.infer.utils_infer import load_checkpoint, load_vocoder
 from f5_tts.model import CFM
 from f5_tts.model.dataset import DynamicBatchSampler, collate_fn_gp_inference
-from f5_tts.model.utils import default, exists, create_derangement, convert_char_to_pinyin, trim_text, available_texts
+from f5_tts.model.utils import default, exists,  convert_char_to_pinyin,  str_to_list_ipa_all # trim_text, available_texts, create_derangement,
+from f5_tts.model.modules import MelSpec
+import torchaudio
+
 
 class Inferencer_gp:
     def __init__(
@@ -30,7 +33,12 @@ class Inferencer_gp:
         tokenizer: str = "char",
         nfe_step: int = 32,
         cfg_strength: float = 2.0,
-        sway_sampling_coef: float = -1.0
+        sway_sampling_coef: float = -1.0,
+        cfg_schedule=None,
+        cfg_decay_time=0.0,
+        reverse=True,
+        layered=False,
+        cfg_strength2=0.0,
     ):
         process_group_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=43200))
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -51,10 +59,19 @@ class Inferencer_gp:
         self.nfe_step = nfe_step
         self.cfg_strength = cfg_strength
         self.sway_sampling_coef = sway_sampling_coef
+        self.cfg_schedule = cfg_schedule
+        self.cfg_decay_time = cfg_decay_time
+        self.layered = layered
+        self.cfg_strength2 = cfg_strength2
 
         dtype = torch.float32 if self.mel_spec_type == "bigvgan" else None
         from f5_tts.infer.utils_infer import load_checkpoint
         model = load_checkpoint(model, checkpoint_path, str(self.accelerator.device), dtype=dtype, use_ema=True)
+        if self.mel_spec_type == "vocos":
+            vocoder_local_path = "my_vocoder/vocos-mel-24khz"
+        elif self.mel_spec_type == "bigvgan":
+            vocoder_local_path = "../checkpoints/bigvgan_v2_24khz_100band_256x"
+        self.vocoder = load_vocoder(vocoder_name=self.mel_spec_type, is_local=True, local_path=vocoder_local_path)
         self.model = self.accelerator.prepare(model)
         self.model.eval()
 
@@ -85,7 +102,7 @@ class Inferencer_gp:
                 max_samples=self.max_samples,
                 random_seed=resumable_with_seed,
                 drop_residual=False,
-                drop_last=False,
+                # drop_last=False,
             )
             dataloader = DataLoader(
                 dataset,
@@ -106,16 +123,18 @@ class Inferencer_gp:
         )
 
         for batch in dataloader:
-            text_inputs = batch["text"]
             mel_spec = batch["mel"].permute(0, 2, 1)
-            mel_lengths = batch["mel_lengths"]
-            rel_paths = batch["rel_paths"]
-
+            
             self.process_batch(
                 mel_spec, 
-                text=text_inputs, 
-                lens=mel_lengths, 
-                rel_paths=rel_paths
+                text=batch["gen_text"], 
+                lens=batch["mel_lengths"], 
+                total_lens=batch["total_mel_len"],
+                rel_paths=batch["rel_paths"],
+                ref_text=batch["ref_text"],
+                ref_text_ipa=batch["ref_text_ipa"],
+                gen_text_ipa=batch["gen_text_ipa"],
+                language_ids=batch["language_ids"]
             )
             
             progress_bar.update(1)
@@ -126,9 +145,14 @@ class Inferencer_gp:
     def process_batch(
         self,
         inp: float["b n d"] | float["b nw"],  # mel or raw wave  # noqa: F722
-        text: int["b nt"] | list[str],  # noqa: F722 
-        lens: int["b"] | None = None,  # noqa: F821
+        text: int["b nt"] | list[str],  # target text # noqa: F722 
+        lens: int["b"] | None = None,  # reference mel lens # noqa: F821
+        total_lens: int["b"] | None = None,
         rel_paths: str["b nt"] |list[str] = None, 
+        ref_text: int["b nt"] | list[str] = None,
+        ref_text_ipa: int["b nt"] | list[str] = None,
+        gen_text_ipa: int["b nt"] | list[str] = None,
+        language_ids: list[str] | None = None,
     ):
         all_files_exist = True
         for i in range(len(rel_paths)):
@@ -147,68 +171,82 @@ class Inferencer_gp:
         if not exists(lens): # skip
             lens = torch.full((batch,), seq_len, device=device)
 
-        # 为每个text设置一个裁剪比例，范围由 self.frac_lengths_mask = (0.1, 0.4) 决定。
-        frac_lengths = torch.zeros((batch,), device=self.accelerator.device).float().uniform_(*self.frac_lengths_mask)
-
-        # TODO
-        # random_text = ?
-        # text_changed = [random_text]
         
         text_source_input = []
-        durations = []
+        duration = torch.tensor(total_lens, dtype=torch.long, device=device)
         for i in range(batch):
-            original = text[i]
-            changed = text_changed[i]
+            original = ref_text_ipa[i]
+            changed = gen_text_ipa[i]
             if self.tokenizer == "pinyin":
                 text_source_input.append(convert_char_to_pinyin([changed + " " + original])[0])
+            elif self.tokenizer.startswith("ipa"):
+                text_source_input.append(str_to_list_ipa_all(changed + " " + original, self.tokenizer))
             else:
                 text_source_input.append(changed + " " + original)
-            ref_text_len = len(original.encode("utf-8"))
-            gen_text_len = len(changed.encode("utf-8"))
-            ref_mel_len = lens[i].item()
-            total_mel_len = ref_mel_len + int(ref_mel_len / ref_text_len * gen_text_len)
-            total_mel_len = min(total_mel_len, 4080)
-            durations.append(total_mel_len)
+            # ref_text_len = len(curr_ref_text.encode("utf-8"))
+            # gen_text_len = len(curr_gen_text.encode("utf-8"))
+            # ref_mel_len = lens[i].item()
+            # total_mel_len = ref_mel_len + int(ref_mel_len / ref_text_len * gen_text_len)
+            # total_mel_len = min(total_mel_len, 4080)
+            # durations.append(total_mel_len)
 
-        duration = torch.LongTensor(durations).to(device)
+
         
         with torch.inference_mode():
-            # TODO
-            # generated, _ = self.accelerator.unwrap_model(self.model).sample_reverse(
-            #     cond=inp,
-            #     text=text_source_input,
-            #     duration=duration,
-            #     lens=lens,
-            #     steps=self.nfe_step,
-            #     cfg_strength=self.cfg_strength,
-            #     sway_sampling_coef=self.sway_sampling_coef,
-            # )
+            generated, _ = self.accelerator.unwrap_model(self.model).sample_reverse(
+                cond=inp,
+                text=text_source_input, # list[list[str]]
+                duration=duration,
+                lens=lens,
+                steps=self.nfe_step,
+                cfg_strength=self.cfg_strength,
+                sway_sampling_coef=self.sway_sampling_coef,
+                language_ids=language_ids,
+                cfg_schedule=self.cfg_schedule,
+                cfg_decay_time=self.cfg_decay_time,
+                layered=self.layered,
+                cfg_strength2=self.cfg_strength2,
+
+            )
             generated = generated.to(torch.float32)
             generated_cpu = generated.cpu()
+
             for i in range(batch):
                 curr_total_len = duration[i].item()
                 curr_ref_len = lens[i].item()
-                gen_len = curr_total_len - curr_ref_len
-                gen_part = generated_cpu[i, :gen_len, :]
-                gen_text_content = text_changed[i]
-
-                pt_file_name = f"{rel_paths[i]}.pt"
-                json_file_name = f"{rel_paths[i]}.json"
+                curr_gen_len = curr_total_len - curr_ref_len
+                rel_path_no_suffix = os.path.splitext(rel_paths[i])[0]
+                gen_all_spec = generated[i].unsqueeze(0).permute(0, 2, 1)
+                gen_need_spec = generated[i, :curr_gen_len, :].unsqueeze(0).permute(0, 2, 1)
+                ############# optional ##########
+                if self.mel_spec_type == "vocos":
+                    wave_all = self.vocoder.decode(gen_all_spec).cpu()
+                    wave_need = self.vocoder.decode(gen_need_spec).cpu()
+                elif self.mel_spec_type == "bigvgan":
+                    wave_all = self.vocoder(gen_all_spec).squeeze(0).cpu()
+                    wave_need = self.vocoder(gen_need_spec).squeeze(0).cpu()
+                torchaudio.save(os.path.join(self.root_path, f"{rel_path_no_suffix}.wav"), wave_all, 24000)
+                torchaudio.save(os.path.join(self.root_path, f"{rel_path_no_suffix}_need.wav"), wave_need, 24000)
+                #################################
+                curr_gen_part = generated_cpu[i, :curr_gen_len, :]
+                curr_gen_text_ipa = gen_text_ipa[i]
+                curr_gen_text = text[i]
                 
-                pt_save_path = os.path.join(self.root_path, pt_file_name)
-                json_save_path = os.path.join(self.root_path, json_file_name)
+                pt_save_path = os.path.join(self.root_path, f"{rel_path_no_suffix}.pt")
+                json_save_path = os.path.join(self.root_path, f"{rel_path_no_suffix}.json")
 
-                self.save_async(gen_part.clone(), pt_save_path, json_save_path, gen_len, gen_text_content) 
+                self.save_async(curr_gen_part.clone(), pt_save_path, json_save_path, curr_gen_len, curr_gen_text, curr_gen_text_ipa)
 
     @staticmethod
-    def save_async(tensor_data, pt_path, json_path, gen_len_val, text_content):
+    def save_async(tensor_data, pt_path, json_path, gen_len_val, text_content, text_ipa):
         folder = os.path.dirname(pt_path)
         os.makedirs(folder, exist_ok=True)
         torch.save(tensor_data, pt_path)
 
         metadata = {
             "gen_len": gen_len_val,
-            "text": text_content
+            "text": text_content,
+            "text_ipa": text_ipa,
         }
 
         with open(json_path, "w", encoding="utf-8") as f:
