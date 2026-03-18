@@ -30,7 +30,9 @@ source:
 ```
 按找之前的逻辑必须开flash_attn和mask，因为dynamic sampler是根据audio prompt的长度去分batch的，但是实际上每个sample的长度是由prompt len + target len决定的，所以用现有逻辑，batch内的sample长度并不相等, 不开mask生成的音频质量会有问题
 - 如果让预处理的时候就确定target text和整体的长度，这样就可以像默认config一样（attn_backend = torch; attn_mask_enabled = False）
-- 但即使修改处理还是建议保持上面原本的配置（[inference_gp.py#L36-L42](https://github.com/QingyuLiu0521/Multilingual_F5-TTS/blob/main/GP/src/train/inference_gp.py#L36-L42)）; 训练时用torch，推理时用flash attn应该没有太大影响因为计算结果近似一致; 而且在Emilia和LibriTTS上实测用flash attn推理得到的sim还会比用torch的略高。
+- 但即使修改处理还是建议保持上面原本的配置（[inference_gp.py#L36-L37](https://github.com/QingyuLiu0521/Multilingual_F5-TTS/blob/main/GP/src/train/inference_gp.py#L36-L37)）; 训练时用torch，推理时用flash attn应该没有太大影响因为计算结果近似一致; 而且在Emilia和LibriTTS上实测用flash attn推理得到的sim还会比用torch的略高。
+
+[inference_gp.py#L38-L42](https://github.com/QingyuLiu0521/Multilingual_F5-TTS/blob/main/GP/src/train/inference_gp.py#L38-L42)换成符合multilingual f5-tts的接口
 
 ```py
     model = CFM(
