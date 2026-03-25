@@ -43,7 +43,6 @@ class TextEmbedding(nn.Module):
         lang_dropout_prob=0.0,
         share_lang_embed=False,
         lang_embed_obj=None,
-        sft=False,
     ):
         super().__init__()
         self.text_embed = nn.Embedding(text_num_embeds + 1, text_dim)  # use 0 as filler token
@@ -74,7 +73,6 @@ class TextEmbedding(nn.Module):
             elif self.text_infill_lang_type == "ada":
                 self.lang_ada_layer = nn.Linear(lang_dim, text_dim * 2) 
         
-        self.sft = sft
         self.mask_padding = mask_padding  # mask filler and batch padding tokens or not
         self.average_upsampling = average_upsampling  # zipvoice-style text late average upsampling (after text encoder)
         if average_upsampling:
@@ -162,44 +160,28 @@ class TextEmbedding(nn.Module):
                 language_ids = language_ids.unsqueeze(1).expand(-1, text.size(1))
                 
             current_lang_ids = language_ids.clone()
+            no_lang_fusion_mask = current_lang_ids == -1 # mask 前缀 prompt token
+            safe_lang_ids = current_lang_ids.masked_fill(no_lang_fusion_mask, 0) # 不能直接用 -1 查 embedding，因此用0做安全占位符，
 
-            if not self.sft:
-                # 用于 cfg 或保留文本丢弃语言
-                if drop_lang:
-                    current_lang_ids = torch.full_like(current_lang_ids, self.num_languages)
-                
-                l_emb = self.lang_embed(current_lang_ids) # [b, nt, lang_dim] 
-                assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
-                if self.text_infill_lang_type == "token_concat":
-                    merged = torch.cat([text, l_emb], dim=-1)
-                    text = self.fusion(merged) 
-                elif self.text_infill_lang_type == "ada":
-                    adaln = self.lang_ada_layer(l_emb)
-                    scale, shift = adaln.chunk(2, dim=-1)
-                    text = text * (1 + scale) + shift
-            else:
-                no_lang_fusion_mask = current_lang_ids == -1 # mask 前缀 prompt token
-                safe_lang_ids = current_lang_ids.masked_fill(no_lang_fusion_mask, 0) # 不能直接用 -1 查 embedding，因此用0做安全占位符，
-
-                # 用于 cfg 或保留文本丢弃语言
-                if drop_lang: # drop_lang 只作用在非 prompt-token 位置
-                    safe_lang_ids = torch.where(
-                        no_lang_fusion_mask,
-                        safe_lang_ids,
-                        torch.full_like(safe_lang_ids, self.num_languages),
-                    )
-                
-                l_emb = self.lang_embed(safe_lang_ids) # [b, nt, lang_dim] 
-                assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
-                if self.text_infill_lang_type == "token_concat":
-                    merged = torch.cat([text, l_emb], dim=-1)
-                    fused_text = self.fusion(merged)
-                    text = torch.where(no_lang_fusion_mask.unsqueeze(-1), text, fused_text) # 前缀 prompt token不和lang id融合
-                elif self.text_infill_lang_type == "ada":
-                    adaln = self.lang_ada_layer(l_emb)
-                    scale, shift = adaln.chunk(2, dim=-1)
-                    fused_text = text * (1 + scale) + shift
-                    text = torch.where(no_lang_fusion_mask.unsqueeze(-1), text, fused_text) # 前缀 prompt token不和lang id融合
+            # 用于 cfg 或保留文本丢弃语言
+            if drop_lang: # drop_lang 只作用在非 prompt-token 位置
+                safe_lang_ids = torch.where(
+                    no_lang_fusion_mask,
+                    safe_lang_ids,
+                    torch.full_like(safe_lang_ids, self.num_languages),
+                )
+            
+            l_emb = self.lang_embed(safe_lang_ids) # [b, nt, lang_dim] 
+            assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
+            if self.text_infill_lang_type == "token_concat":
+                merged = torch.cat([text, l_emb], dim=-1)
+                fused_text = self.fusion(merged)
+                text = torch.where(no_lang_fusion_mask.unsqueeze(-1), text, fused_text) # 前缀 prompt token不和lang id融合
+            elif self.text_infill_lang_type == "ada":
+                adaln = self.lang_ada_layer(l_emb)
+                scale, shift = adaln.chunk(2, dim=-1)
+                fused_text = text * (1 + scale) + shift
+                text = torch.where(no_lang_fusion_mask.unsqueeze(-1), text, fused_text) # 前缀 prompt token不和lang id融合
     
         # possible extra modeling
         if self.extra_modeling:
@@ -290,7 +272,6 @@ class DiT(nn.Module):
         lang_dropout_prob=0.0, # 后续不再使用，仅供前向支持
         drop_lang_in_time: bool | None =False, # 仅供前向支持
         share_lang_embed: bool | None =False,
-        sft: bool = False,
     ):
         super().__init__()
 
@@ -340,7 +321,6 @@ class DiT(nn.Module):
             lang_dropout_prob=lang_dropout_prob,
             share_lang_embed=share_lang_embed,
             lang_embed_obj=lang_embed_obj,
-            sft=sft,
         )
         self.text_cond, self.text_uncond = None, None  # text cache
         self.input_embed = InputEmbedding(mel_dim, text_dim, dim)

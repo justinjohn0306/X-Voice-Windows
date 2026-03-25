@@ -78,6 +78,10 @@ def mask_from_frac_lengths(seq_len: int["b"], frac_lengths: float["b"]):
     return mask_from_start_end_indices(seq_len, start, end)
 
 
+def mask_from_prompt_lens(prompt_lens: int["b"], lens: int["b"]):
+    return mask_from_start_end_indices(lens, prompt_lens, lens)
+
+
 def maybe_masked_mean(t: float["b n d"], mask: bool["b n"] = None) -> float["b d"]:
     if not exists(mask):
         return t.mean(dim=1)
@@ -379,7 +383,7 @@ def list_list_to_idx(
 # Get tokenizer
 
 
-def get_tokenizer(dataset_name, tokenizer: str = "pinyin"):
+def get_tokenizer(dataset_name, tokenizer: str = "pinyin", sft: bool = False):
     """
     tokenizer   - "pinyin" do g2p for only chinese characters, need .txt vocab_file
                 - "char" for char-wise tokenizer, need .txt vocab_file
@@ -390,7 +394,10 @@ def get_tokenizer(dataset_name, tokenizer: str = "pinyin"):
                 - if use "byte", set to 256 (unicode byte range)
     """
     if tokenizer in ["pinyin", "char"] or tokenizer.startswith("ipa"):
-        tokenizer_path = os.path.join(files("f5_tts").joinpath("../../data"), f"{dataset_name}_{tokenizer}/vocab.txt")
+        if not sft:
+            tokenizer_path = os.path.join(files("f5_tts").joinpath("../../data"), f"{dataset_name}_{tokenizer}/vocab.txt")
+        else:
+            tokenizer_path = os.path.join(files("f5_tts").joinpath("../../data"), f"{dataset_name}_{tokenizer}_sft/vocab.txt")
         with open(tokenizer_path, "r", encoding="utf-8") as f:
             vocab_char_map = {}
             for i, char in enumerate(f):
@@ -490,3 +497,93 @@ def get_epss_timesteps(n, device, dtype):
     if not t:
         return torch.linspace(0, 1, n + 1, device=device, dtype=dtype)
     return dt * torch.tensor(t, device=device, dtype=dtype)
+
+def prefix_text_padding(
+    text: int["b nt"],
+    lens: int["b"] | None,
+    prompt_lens: int["b"] | None,
+    prefix_token_id: int = -1,
+    anchor_token_ids: int["na"] | None = None,
+) -> int["b nt"]:
+    lens = lens.to(device=text.device, dtype=torch.long)
+    prompt_lens = prompt_lens.to(device=text.device, dtype=torch.long)
+    if exists(anchor_token_ids):
+        anchor_token_ids = anchor_token_ids.to(device=text.device, dtype=text.dtype)
+    if torch.any(prompt_lens >= lens):
+        raise ValueError("prompt_lens must be strictly less than lens")
+
+    padded_text = []
+    for i in range(text.shape[0]):
+        sample_text = text[i]
+        target_text = sample_text[sample_text != -1]
+        prompt_len = int(prompt_lens[i].item())
+        total_len = int(lens[i].item())
+        target_mel_len = total_len - prompt_len
+
+        if prompt_len <= 0 or target_text.numel() == 0:
+            padded_text.append(target_text)
+            continue
+
+        num_prefix = round(prompt_len / target_mel_len * int(target_text.numel()))
+        if num_prefix <= 0:
+            padded_text.append(target_text)
+            continue
+
+        prefix = torch.full((num_prefix,), prefix_token_id, device=text.device, dtype=text.dtype)
+        if exists(anchor_token_ids):
+            padded_text.append(torch.cat((prefix, anchor_token_ids, target_text), dim=0))
+        else:
+            padded_text.append(torch.cat((prefix, target_text), dim=0))
+
+    return pad_sequence(padded_text, batch_first=True, padding_value=-1)
+
+
+def build_prefixed_language_ids(
+    text: torch.Tensor,
+    total_lens: torch.Tensor,
+    prompt_lens: torch.Tensor,
+    language_ids: torch.Tensor,
+    anchor_token_ids: torch.Tensor | None = None,
+    unknown_lang_id: int | None = None,
+) -> torch.Tensor:
+    language_ids = language_ids.to(device=text.device, dtype=torch.long)
+    total_lens = total_lens.to(device=text.device, dtype=torch.long)
+    prompt_lens = prompt_lens.to(device=text.device, dtype=torch.long)
+    anchor_len = 0 if anchor_token_ids is None else int(anchor_token_ids.numel())
+    padded_language_ids = []
+
+    for i in range(text.shape[0]):
+        sample_text = text[i]
+        target_text = sample_text[sample_text != -1]
+        prompt_len = int(prompt_lens[i].item())
+        total_len = int(total_lens[i].item())
+        target_mel_len = total_len - prompt_len
+        target_text_len = int(target_text.numel())
+        target_lang = int(language_ids[i].item())
+
+        if prompt_len <= 0 or target_text_len == 0:
+            padded_language_ids.append(
+                torch.full((target_text_len,), target_lang, device=text.device, dtype=torch.long)
+            )
+            continue
+
+        if target_mel_len <= 0:
+            raise ValueError("total_lens must be greater than prompt_lens")
+
+        num_prefix = round(prompt_len / target_mel_len * target_text_len)
+        if num_prefix <= 0:
+            padded_language_ids.append(
+                torch.full((target_text_len,), target_lang, device=text.device, dtype=torch.long)
+            )
+            continue
+
+        prefix_lang = torch.full((num_prefix,), -1, device=text.device, dtype=torch.long)
+        target_lang_ids = torch.full((target_text_len,), target_lang, device=text.device, dtype=torch.long)
+
+        if anchor_len > 0:
+            anchor_lang_ids = torch.full((anchor_len,), unknown_lang_id, device=text.device, dtype=torch.long)
+            padded_language_ids.append(torch.cat((prefix_lang, anchor_lang_ids, target_lang_ids), dim=0))
+        else:
+            padded_language_ids.append(torch.cat((prefix_lang, target_lang_ids), dim=0))
+
+    return pad_sequence(padded_language_ids, batch_first=True, padding_value=-1)
