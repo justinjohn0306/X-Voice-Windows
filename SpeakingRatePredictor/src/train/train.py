@@ -76,3 +76,5 @@ def main(cfg):
 
 if __name__ == "__main__":
     main()
+
+# accelerate launch src/train/train.py --config-name SpeedPredict_Multilingual.yaml
