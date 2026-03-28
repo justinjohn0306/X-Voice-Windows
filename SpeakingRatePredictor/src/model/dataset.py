@@ -2,6 +2,7 @@ import os
 import json
 from importlib.resources import files
 from typing import Literal
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -17,11 +18,49 @@ import pyphen
 import pypinyin
 import re
 from pathlib import Path
+import unicodedata
+from pythainlp.tokenize import syllable_tokenize
 
 DATA_DIR = (Path(__file__) / "../../../data").resolve()
+SPEAKING_RATE_ROOT = (Path(__file__) / "../..").resolve()
+MAVL_ROOT = SPEAKING_RATE_ROOT / "MAVL"
+
+if str(MAVL_ROOT) not in sys.path:
+    sys.path.insert(0, str(MAVL_ROOT))
 
 from .modules import MelSpec
 from .utils import default
+from process_syllable.japanese import split_syllables as ja_split_syllables
+
+PYPHEN_LANG_MAP = {
+    "bg": "bg_BG",
+    "cs": "cs_CZ",
+    "da": "da_DK",
+    "de": "de_DE",
+    "el": "el_GR",
+    "en": "en_US",
+    "es": "es_ES",
+    "et": "et_EE",
+    "fi": "fi_FI",
+    "fr": "fr_FR",
+    "hr": "hr_HR",
+    "hu": "hu_HU",
+    "id": "id_ID",
+    "it": "it_IT",
+    "lt": "lt_LT",
+    "lv": "lv_LV",
+    "mt": "mt_MT",
+    "nl": "nl_NL",
+    "pl": "pl_PL",
+    "pt": "pt_PT",
+    "ro": "ro_RO",
+    "ru": "ru_RU",
+    "sk": "sk_SK",
+    "sl": "sl_SI",
+    "sv": "sv_SE",
+}
+
+_PYPHEN_CACHE = {}
 
 class HFDataset(Dataset):
     def __init__(
@@ -182,6 +221,7 @@ class CustomDataset(Dataset):
             "speed": speed,
             "duration": duration,
             "speed_class": speed_class,
+            "lang": row.get("lang"),
         }
 
 def load_dataset(
@@ -250,22 +290,55 @@ def load_dataset(
         )
     return train_dataset
 
-def count(text):
-    dic = pyphen.Pyphen(lang='en_US')
+def extract_pyphen_text(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text)
+    tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
+    return " ".join(tokens)
+
+
+def count(text, lang="en"):
+    if not text:
+        return 0
+
+    if lang in {"zh", "yue"}:
+        return len(re.findall(r"[\u4e00-\u9fff]", text))
+
+    if lang == "ko":
+        return len(re.findall(r"[\uac00-\ud7a3]", text))
+
+    if lang == "th":
+        clean_text = "".join(
+            ch for ch in text if unicodedata.category(ch)[0] in {"L", "M"} or ch.isspace()
+        )
+        return len(syllable_tokenize(clean_text))
+
+    if lang == "ja":
+        _, syllable_count = ja_split_syllables(text)
+        return syllable_count
+
+    if lang == "vi":
+        text = unicodedata.normalize("NFKC", text)
+        tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
+        return len(tokens)
+
+    clean_text = extract_pyphen_text(text)
+    if not clean_text:
+        return 0
+
+    pyphen_lang = PYPHEN_LANG_MAP.get(lang, "en_US")
+    if pyphen_lang not in _PYPHEN_CACHE:
+        try:
+            _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
+        except Exception:
+            if "en_US" not in _PYPHEN_CACHE:
+                _PYPHEN_CACHE["en_US"] = pyphen.Pyphen(lang="en_US")
+            pyphen_lang = "en_US"
+
+    dic = _PYPHEN_CACHE[pyphen_lang]
     total_syllables = 0
-    pattern = re.compile(r"[a-zA-Z']+|[\u4e00-\u9fff]")
-    tokens = pattern.findall(text)
-    
-    for token in tokens:
-        if '\u4e00' <= token <= '\u9fff':
-            total_syllables += 1
-        else:
-            try:
-                syllables = dic.inserted(token.lower()).split("-")
-                total_syllables += len(syllables)
-            except Exception:
-                total_syllables += 1
-                
+    for word in clean_text.split():
+        if word:
+            total_syllables += len(dic.inserted(word).split("-"))
     return total_syllables
 
 # Dynamic Batch Sampler
@@ -361,6 +434,7 @@ def collate_fn_sp(batch):
     speeds = torch.tensor([item["speed"] for item in batch], dtype=torch.float)
     speed_classes = torch.tensor([item["speed_class"] for item in batch], dtype=torch.long)
     durations = [item["duration"] for item in batch]
+    langs = [item["lang"] for item in batch]
 
     return dict(
         mel=mel_specs,
@@ -370,4 +444,5 @@ def collate_fn_sp(batch):
         durations=durations,
         text=text,
         text_lengths=text_lengths,
+        langs=langs,
     )

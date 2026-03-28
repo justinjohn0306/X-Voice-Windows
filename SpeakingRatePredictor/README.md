@@ -9,6 +9,9 @@ This module is built upon the **F5-TTS** environment.
 
 ```bash
 pip install pyphen
+pip install pykakasi
+pip install python-crfsuite
+pip install num2words
 ```
 
 ## Data Augmentation: Silence Injection

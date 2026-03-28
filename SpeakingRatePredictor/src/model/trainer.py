@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import math
 import os
+from collections import defaultdict
 
 import torch
 import wandb
@@ -416,6 +417,7 @@ class Trainer:
         correct_predictions = 0
         total_predictions = 0
         validation_results = []
+        per_language_stats = defaultdict(lambda: {"correct": 0, "total": 0})
         
         print("\n" + "="*30)
         print(f"Running validation at update {global_update}...")
@@ -426,10 +428,11 @@ class Trainer:
                 mel_lengths = batch["mel_lengths"].to(self.accelerator.device)
                 text = batch["text"][0]
                 gt_duration = batch["durations"][0]
+                lang = batch["langs"][0]
 
                 predicted_speed = self.accelerator.unwrap_model(self.model).predict_speed(mel_spec, mel_lengths)
                 
-                num_units = count(text)
+                num_units = count(text, lang)
 
                 if predicted_speed > 0:
                     predicted_duration = num_units / predicted_speed
@@ -437,22 +440,38 @@ class Trainer:
                     predicted_duration = float('inf') # 避免除以零
                 predicted_duration = predicted_duration.item()
 
-                if abs(predicted_duration - gt_duration) <= self.allowed_error * gt_duration:
+                is_correct = abs(predicted_duration - gt_duration) <= self.allowed_error * gt_duration
+                if is_correct:
                     correct_predictions += 1
+                    per_language_stats[lang]["correct"] += 1
                 
                 total_predictions += 1
+                per_language_stats[lang]["total"] += 1
                 
                 validation_results.append({
+                    "lang": lang,
                     "gt_duration": gt_duration,
                     "predicted_duration": predicted_duration,
                     "predicted_speed": predicted_speed.item(),
                     "num_units": num_units,
                     "text": text,
+                    "correct": is_correct,
                 })
 
         accuracy = (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
+        per_language_accuracy = {}
+        for lang, stats in sorted(per_language_stats.items()):
+            lang_total = stats["total"]
+            lang_accuracy = (stats["correct"] / lang_total) * 100 if lang_total > 0 else 0
+            per_language_accuracy[lang] = {
+                "accuracy": lang_accuracy,
+                "correct": stats["correct"],
+                "total": lang_total,
+            }
         
         print(f"Validation Accuracy: {accuracy:.2f}% ({correct_predictions}/{total_predictions})")
+        for lang, stats in per_language_accuracy.items():
+            print(f"  {lang}: {stats['accuracy']:.2f}% ({stats['correct']}/{stats['total']})")
         print("="*30 + "\n")
         
         output_file = f"{log_validation_path}/val_{global_update}.jsonl"
@@ -460,8 +479,16 @@ class Trainer:
             for result in validation_results:
                 f.write(json.dumps(result, ensure_ascii=False) + "\n")
             
-            summary = {"summary": {"accuracy": accuracy, "correct": correct_predictions, "total": total_predictions}}
-            f.write(json.dumps(summary) + "\n")
+            per_language_summary = {"per_language_summary": per_language_accuracy}
+            f.write(json.dumps(per_language_summary, ensure_ascii=False) + "\n")
+            summary = {
+                "summary": {
+                    "accuracy": accuracy,
+                    "correct": correct_predictions,
+                    "total": total_predictions,
+                }
+            }
+            f.write(json.dumps(summary, ensure_ascii=False) + "\n")
 
         all_accuracies = []
         for filename in os.listdir(log_validation_path):
@@ -471,13 +498,24 @@ class Trainer:
                     filepath = os.path.join(log_validation_path, filename)
                     
                     with open(filepath, "r", encoding="utf-8") as f:
+                        per_language_data = None
+                        summary_data = None
                         for line in f:
-                            last_line = line
-                        
-                        summary_data = json.loads(last_line)
-                        if "summary" in summary_data:
-                            accuracy = summary_data["summary"]["accuracy"]
-                            all_accuracies.append({"step": update, "accuracy": accuracy})
+                            record = json.loads(line)
+                            if "per_language_summary" in record:
+                                per_language_data = record["per_language_summary"]
+                            if "summary" in record:
+                                summary_data = record
+
+                        if summary_data is not None:
+                            file_accuracy = summary_data["summary"]["accuracy"]
+                            all_accuracies.append(
+                                {
+                                    "step": update,
+                                    "accuracy": file_accuracy,
+                                    "per_language_accuracy": per_language_data or {},
+                                }
+                            )
                 except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
                     print(f"Error processing {filename}: {e}")
                     continue
