@@ -17,8 +17,8 @@ from tqdm import tqdm
 import json
 
 from . import SpeedPredictor
-from .dataset import DynamicBatchSampler, collate_fn_sp, count
-from .utils import default, exists
+from .dataset import DynamicBatchSampler, collate_fn_sp
+from .utils import default, exists, count_syllables
 
 # trainer
 class Trainer:
@@ -432,7 +432,7 @@ class Trainer:
 
                 predicted_speed = self.accelerator.unwrap_model(self.model).predict_speed(mel_spec, mel_lengths)
                 
-                num_units = count(text, lang)
+                num_units = count_syllables(text, lang)
 
                 if predicted_speed > 0:
                     predicted_duration = num_units / predicted_speed

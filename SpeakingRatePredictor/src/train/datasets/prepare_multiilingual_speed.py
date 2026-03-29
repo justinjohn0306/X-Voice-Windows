@@ -8,60 +8,29 @@ import unicodedata
 from pathlib import Path
 
 import matplotlib
-import pyphen
-from datasets.arrow_writer import ArrowWriter
-from pythainlp.tokenize import syllable_tokenize
 
+from datasets.arrow_writer import ArrowWriter
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-SPEAKING_RATE_ROOT = Path(__file__).resolve().parents[3]
-MAVL_ROOT = SPEAKING_RATE_ROOT / "MAVL"
+SRC_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(SRC_DIR))
+from model.utils import extract_pyphen_text, count_syllables
 
-if str(MAVL_ROOT) not in sys.path:
-    sys.path.insert(0, str(MAVL_ROOT))
 
-from process_syllable.japanese import split_syllables as ja_split_syllables
 
 TRAIN_HOURS_PER_LANG = 250
 VAL_SAMPLES_PER_LANG = 100
-VALID_PUNCTUATION = '\'",.?!;:。，、！？；：「」『』【】'
+VALID_PUNCTUATION = '\'",.?!;:。，、！？；：「」『』【】-'
 
-PYPHEN_LANG_MAP = {
-    "bg": "bg_BG",
-    "cs": "cs_CZ",
-    "da": "da_DK",
-    "de": "de_DE",
-    "el": "el_GR",
-    "en": "en_US",
-    "es": "es_ES",
-    "et": "et_EE",
-    "fi": "fi_FI",
-    "fr": "fr_FR",
-    "hr": "hr_HR",
-    "hu": "hu_HU",
-    "id": "id_ID",
-    "it": "it_IT",
-    "lt": "lt_LT",
-    "lv": "lv_LV",
-    "mt": "mt_MT",
-    "nl": "nl_NL",
-    "pl": "pl_PL",
-    "pt": "pt_PT",
-    "ro": "ro_RO",
-    "ru": "ru_RU",
-    "sk": "sk_SK",
-    "sl": "sl_SI",
-    "sv": "sv_SE",
-}
-
-_PYPHEN_CACHE = {}
-
-
-def check_valid_chars(input_str: str) -> bool:
+def check_valid_chars(input_str: str, lang) -> bool:
     for c in input_str:
-        if c.isalpha():
-            continue
+        if lang == "th":
+            if unicodedata.category(c).startswith(('L','M')):
+                continue
+        else:
+            if c.isalpha():
+                continue
         if c in VALID_PUNCTUATION:
             continue
         if c.isspace():
@@ -70,58 +39,6 @@ def check_valid_chars(input_str: str) -> bool:
     return True
 
 
-def extract_pyphen_text(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text)
-    tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
-    return " ".join(tokens)
-
-
-def count_syllables(text: str, lang: str) -> int:
-    if not text:
-        return 0
-
-    if lang in {"zh", "yue"}:
-        return len(re.findall(r"[\u4e00-\u9fff]", text))
-
-    if lang == "ko":
-        return len(re.findall(r"[\uac00-\ud7a3]", text))
-
-    if lang == "th":
-        clean_text = "".join(
-            ch
-            for ch in text
-            if unicodedata.category(ch)[0] in {"L", "M"} or ch.isspace()
-        )
-        return len(syllable_tokenize(clean_text))
-
-    if lang == "ja":
-        _, count = ja_split_syllables(text)
-        return count
-
-    if lang == "vi":
-        text = unicodedata.normalize("NFKC", text)
-        tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
-        return len(tokens)
-
-    clean_text = extract_pyphen_text(text)
-    if not clean_text:
-        return 0
-
-    pyphen_lang = PYPHEN_LANG_MAP.get(lang, "en_US")
-    if pyphen_lang not in _PYPHEN_CACHE:
-        try:
-            _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
-        except Exception:
-            if "en_US" not in _PYPHEN_CACHE:
-                _PYPHEN_CACHE["en_US"] = pyphen.Pyphen(lang="en_US")
-            pyphen_lang = "en_US"
-
-    dic = _PYPHEN_CACHE[pyphen_lang]
-    total = 0
-    for word in clean_text.split():
-        if word:
-            total += len(dic.inserted(word).split("-"))
-    return total
 
 
 def map_to_class(speed: float, delta: float = 0.25) -> float:
@@ -129,8 +46,8 @@ def map_to_class(speed: float, delta: float = 0.25) -> float:
 
 
 def read_all_metadata(input_dir: str):
-    input_path = Path(input_dir) / "csv_train"
-    csv_files = list(input_path.glob("metadata_*_full.csv"))
+    input_path = Path(input_dir) / "csvs"
+    csv_files = list(input_path.glob("metadata_*_top_1000.0h.csv"))
 
     if not csv_files:
         print(f"No proper csv files found in {input_dir}")
@@ -151,9 +68,10 @@ def read_csv_file(csv_path: Path):
         _ = f.readline()
         for line in f:
             parts = line.rstrip("\n").split("|")
-            if len(parts) != 3:
-                continue
-            audio_path, duration, text = parts
+            if len(parts) == 3:
+                audio_path, duration, text = parts
+            elif len(parts) == 4:
+                audio_path, duration, text, _ = parts
             try:
                 duration = float(duration)
             except ValueError:
@@ -163,7 +81,7 @@ def read_csv_file(csv_path: Path):
 
 
 def build_sample(audio_path: str, text: str, duration: float, lang_code: str):
-    if duration <= 0 or not check_valid_chars(text):
+    if duration <= 0 or not check_valid_chars(text, lang=lang_code):
         return None
 
     syllable_count = count_syllables(text, lang_code)
@@ -179,7 +97,7 @@ def build_sample(audio_path: str, text: str, duration: float, lang_code: str):
     }
 
 
-def select_split_items(raw_items, lang_code: str, rng: random.Random):
+def select_split_items(raw_items, lang_code: str, rng: random.Random, inp_dir: Path):
     shuffled_items = list(raw_items)
     rng.shuffle(shuffled_items)
 
@@ -188,9 +106,15 @@ def select_split_items(raw_items, lang_code: str, rng: random.Random):
     train_durations = []
     val_durations = []
     train_duration_sum = 0.0
-
+    last_print_duration = 0
+    PRINT_INTERVAL_SEC = 10 * 3600  
     for audio_path, text, duration in shuffled_items:
+        audio_dir = inp_dir / "wavs" / audio_path
+        if not audio_dir.exists():
+            print(f"{audio_dir} not exists")
+            continue
         sample = build_sample(audio_path, text, duration, lang_code)
+        
         if sample is None:
             continue
 
@@ -203,6 +127,10 @@ def select_split_items(raw_items, lang_code: str, rng: random.Random):
             train_results.append(sample)
             train_durations.append(duration)
             train_duration_sum += duration
+            if train_duration_sum - last_print_duration >= PRINT_INTERVAL_SEC:
+                collected_hours = train_duration_sum / 3600
+                print(collected_hours)
+                last_print_duration = train_duration_sum
 
         if len(val_results) >= VAL_SAMPLES_PER_LANG and train_duration_sum >= TRAIN_HOURS_PER_LANG * 3600:
             break
@@ -267,7 +195,7 @@ def prepare_all(inp_dir: str, out_dir_root: str, dataset_name: str, seed: int = 
 
         rng = random.Random(seed + idx)
         lang_train, lang_train_durations, lang_val, lang_val_durations = select_split_items(
-            raw_items, lang_code, rng
+            raw_items, lang_code, rng, inp_dir
         )
 
         train_rows.extend(lang_train)
@@ -300,13 +228,13 @@ def main():
     parser.add_argument(
         "--inp_dir",
         type=str,
-        default="/inspire/hdd/project/multilingualspeechrecognition/chenxie-25019/rixixu/datasets",
+        default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets",
         help="Root dir containing csv_train/metadata_*_full.csv",
     )
     parser.add_argument(
         "--out_dir",
         type=str,
-        default="/inspire/hdd/project/multilingualspeechrecognition/chenxie-25019/rixixu/F5-TTS/data",
+        default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/Multilingual_F5-TTS/F5-TTS/data",
         help="Output root dir for SRP data",
     )
     parser.add_argument("--dataset_name", type=str, required=True)
@@ -318,3 +246,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python src/train/datasets/prepare_multilingual_speed.py --dataset_name multilingual_250_100

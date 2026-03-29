@@ -22,45 +22,9 @@ import unicodedata
 from pythainlp.tokenize import syllable_tokenize
 
 DATA_DIR = (Path(__file__) / "../../../data").resolve()
-SPEAKING_RATE_ROOT = (Path(__file__) / "../..").resolve()
-MAVL_ROOT = SPEAKING_RATE_ROOT / "MAVL"
-
-if str(MAVL_ROOT) not in sys.path:
-    sys.path.insert(0, str(MAVL_ROOT))
 
 from .modules import MelSpec
-from .utils import default
-from process_syllable.japanese import split_syllables as ja_split_syllables
-
-PYPHEN_LANG_MAP = {
-    "bg": "bg_BG",
-    "cs": "cs_CZ",
-    "da": "da_DK",
-    "de": "de_DE",
-    "el": "el_GR",
-    "en": "en_US",
-    "es": "es_ES",
-    "et": "et_EE",
-    "fi": "fi_FI",
-    "fr": "fr_FR",
-    "hr": "hr_HR",
-    "hu": "hu_HU",
-    "id": "id_ID",
-    "it": "it_IT",
-    "lt": "lt_LT",
-    "lv": "lv_LV",
-    "mt": "mt_MT",
-    "nl": "nl_NL",
-    "pl": "pl_PL",
-    "pt": "pt_PT",
-    "ro": "ro_RO",
-    "ru": "ru_RU",
-    "sk": "sk_SK",
-    "sl": "sl_SI",
-    "sv": "sv_SE",
-}
-
-_PYPHEN_CACHE = {}
+from .utils import default, extract_pyphen_text, count_syllables
 
 class HFDataset(Dataset):
     def __init__(
@@ -141,6 +105,7 @@ class CustomDataset(Dataset):
         mel_spec_module: nn.Module | None = None,
         speed_type="syllables",
         split="train",
+        root_dir=None,
     ):
         self.data = custom_dataset
         self.durations = durations
@@ -158,6 +123,7 @@ class CustomDataset(Dataset):
             "words": 32
         }
         self.max_label = num_classes_map[self.speed_type]
+        self.root_dir = root_dir
 
         if not preprocessed_mel:
             self.mel_spectrogram = default(
@@ -190,7 +156,8 @@ class CustomDataset(Dataset):
             duration = row["duration"]
             speed = max(row[f"speed_{self.speed_type}"], 0.25)
             speed_class = min(int(speed/0.25 - 1), self.max_label - 1)
-
+            if self.root_dir and not os.path.isabs(audio_path):
+                audio_path = os.path.join(self.root_dir, audio_path)
             # filter by given length
             if 0.3 <= duration <= 30:
                 break  # valid
@@ -241,9 +208,12 @@ def load_dataset(
     print(f"Loading {split} dataset ...")
     
     suffix = "_val" if split == "val" else ""
-
+    if dataset_name.startswith("multilingual"): # supports all dataset starts with "multilingual"
+        print(f"dataset:{dataset_name}")
+        root_dir = "/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/wavs"
+        print(f"[debug]: Root dir: {root_dir}, ensure it matches with the relative path in metadata.")
     if dataset_type == "CustomDataset":
-        rel_data_path = str(DATA_DIR / f"{dataset_name}_speed")
+        rel_data_path = str(DATA_DIR / f"{dataset_name}_srp")
         if audio_type == "raw":
             try:
                 train_dataset = load_from_disk(f"{rel_data_path}/raw{suffix}")
@@ -263,6 +233,7 @@ def load_dataset(
             mel_spec_module=mel_spec_module,
             speed_type=speed_type,
             split=split,
+            root_dir=root_dir,
             **mel_spec_kwargs,
         )
 
@@ -290,56 +261,6 @@ def load_dataset(
         )
     return train_dataset
 
-def extract_pyphen_text(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text)
-    tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
-    return " ".join(tokens)
-
-
-def count(text, lang="en"):
-    if not text:
-        return 0
-
-    if lang in {"zh", "yue"}:
-        return len(re.findall(r"[\u4e00-\u9fff]", text))
-
-    if lang == "ko":
-        return len(re.findall(r"[\uac00-\ud7a3]", text))
-
-    if lang == "th":
-        clean_text = "".join(
-            ch for ch in text if unicodedata.category(ch)[0] in {"L", "M"} or ch.isspace()
-        )
-        return len(syllable_tokenize(clean_text))
-
-    if lang == "ja":
-        _, syllable_count = ja_split_syllables(text)
-        return syllable_count
-
-    if lang == "vi":
-        text = unicodedata.normalize("NFKC", text)
-        tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
-        return len(tokens)
-
-    clean_text = extract_pyphen_text(text)
-    if not clean_text:
-        return 0
-
-    pyphen_lang = PYPHEN_LANG_MAP.get(lang, "en_US")
-    if pyphen_lang not in _PYPHEN_CACHE:
-        try:
-            _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
-        except Exception:
-            if "en_US" not in _PYPHEN_CACHE:
-                _PYPHEN_CACHE["en_US"] = pyphen.Pyphen(lang="en_US")
-            pyphen_lang = "en_US"
-
-    dic = _PYPHEN_CACHE[pyphen_lang]
-    total_syllables = 0
-    for word in clean_text.split():
-        if word:
-            total_syllables += len(dic.inserted(word).split("-"))
-    return total_syllables
 
 # Dynamic Batch Sampler
 class DynamicBatchSampler(Sampler[list[int]]):
