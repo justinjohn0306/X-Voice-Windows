@@ -240,6 +240,15 @@ def count_syllables(text: str, lang: str) -> int:
             total += len(dic.inserted(word).split("-"))
     return total
 
+def count_syllables_(text: str, lang: str) -> int:
+    def count_punctuations(text):
+        punct_chars = set('\'",.?!;:。，、！？；：')
+        punct_syllables = 0
+        for char in text:
+            if char in punct_chars:
+                punct_syllables += 1
+        return punct_syllables
+    return count_syllables(text, lang) + count_punctuations(text)
 
 def get_inference_prompt(
     metainfo,
@@ -391,7 +400,7 @@ def get_inference_prompt(
             else:
                 if sp_type == "pretrained":
                     assert model_sp is not None
-                    gt_num_unit = count_syllables(gt_text, language)
+                    gt_num_unit = count_syllables_(gt_text, language)
                     ref_mel_t = ref_mel.unsqueeze(0).permute(0, 2, 1)
                     ref_mel_tensor = ref_mel_t.to(device)
                     ref_mel_len_tensor = torch.tensor([ref_mel_len], dtype=torch.long).to(device)
