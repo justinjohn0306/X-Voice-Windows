@@ -155,3 +155,13 @@ def count_syllables(text: str, lang: str) -> int:
         if word:
             total += len(dic.inserted(word).split("-"))
     return total
+
+def count_syllables_(text: str, lang: str) -> int:
+    def count_punctuations(text):
+        punct_chars = set(',.?!;:。，、！？；：')
+        punct_syllables = 0
+        for char in text:
+            if char in punct_chars:
+                punct_syllables += 1
+        return punct_syllables
+    return count_syllables(text, lang) + count_punctuations(text)
