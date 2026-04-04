@@ -47,7 +47,6 @@ class Trainer:
         ema_kwargs: dict = dict(),
         bnb_optimizer: bool = False,
         cfg_dict: dict = dict(),  # training config
-        allowed_error: float = 0.15,
     ):
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
@@ -119,7 +118,6 @@ class Trainer:
         self.max_grad_norm = max_grad_norm
 
         self.noise_scheduler = noise_scheduler
-        self.allowed_error = allowed_error
 
         if bnb_optimizer:
             import bitsandbytes as bnb
@@ -414,10 +412,10 @@ class Trainer:
             pin_memory=True,
         )
 
-        correct_predictions = 0
-        total_predictions = 0
         validation_results = []
-        per_language_stats = defaultdict(lambda: {"correct": 0, "total": 0})
+        absolute_errors = []
+        relative_errors = []
+        per_language_stats = defaultdict(lambda: {"absolute_error_sum": 0.0, "relative_error_sum": 0.0, "count": 0})
         
         print("\n" + "="*30)
         print(f"Running validation at update {global_update}...")
@@ -431,47 +429,53 @@ class Trainer:
                 lang = batch["langs"][0]
 
                 predicted_speed = self.accelerator.unwrap_model(self.model).predict_speed(mel_spec, mel_lengths)
-                
+                predicted_speed_value = predicted_speed.item()
+                gt_duration_value = gt_duration.item() if hasattr(gt_duration, "item") else gt_duration
                 num_units = count_syllables(text, lang)
 
-                if predicted_speed > 0:
-                    predicted_duration = num_units / predicted_speed
+                if predicted_speed_value > 0:
+                    predicted_duration = num_units / predicted_speed_value
                 else:
-                    predicted_duration = float('inf') # 避免除以零
-                predicted_duration = predicted_duration.item()
+                    predicted_duration = float("inf")
 
-                is_correct = abs(predicted_duration - gt_duration) <= self.allowed_error * gt_duration
-                if is_correct:
-                    correct_predictions += 1
-                    per_language_stats[lang]["correct"] += 1
-                
-                total_predictions += 1
-                per_language_stats[lang]["total"] += 1
-                
+                abs_error = abs(predicted_duration - gt_duration_value)
+                rel_error = abs_error / gt_duration_value * 100 if gt_duration_value > 0 else float("inf")
+
+                absolute_errors.append(abs_error)
+                relative_errors.append(rel_error)
+                per_language_stats[lang]["absolute_error_sum"] += abs_error
+                per_language_stats[lang]["relative_error_sum"] += rel_error
+                per_language_stats[lang]["count"] += 1
+
                 validation_results.append({
                     "lang": lang,
-                    "gt_duration": gt_duration,
+                    "gt_duration": gt_duration_value,
                     "predicted_duration": predicted_duration,
-                    "predicted_speed": predicted_speed.item(),
+                    "predicted_speed": predicted_speed_value,
                     "num_units": num_units,
+                    "absolute_error": abs_error,
+                    "relative_error": rel_error,
                     "text": text,
-                    "correct": is_correct,
                 })
 
-        accuracy = (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
-        per_language_accuracy = {}
+        mae = sum(absolute_errors) / len(absolute_errors) if absolute_errors else 0.0
+        mre = sum(relative_errors) / len(relative_errors) if relative_errors else 0.0
+        per_language_metrics = {}
         for lang, stats in sorted(per_language_stats.items()):
-            lang_total = stats["total"]
-            lang_accuracy = (stats["correct"] / lang_total) * 100 if lang_total > 0 else 0
-            per_language_accuracy[lang] = {
-                "accuracy": lang_accuracy,
-                "correct": stats["correct"],
-                "total": lang_total,
+            lang_count = stats["count"]
+            per_language_metrics[lang] = {
+                "mean_absolute_error": stats["absolute_error_sum"] / lang_count if lang_count > 0 else 0.0,
+                "mean_relative_error": stats["relative_error_sum"] / lang_count if lang_count > 0 else 0.0,
+                "count": lang_count,
             }
-        
-        print(f"Validation Accuracy: {accuracy:.2f}% ({correct_predictions}/{total_predictions})")
-        for lang, stats in per_language_accuracy.items():
-            print(f"  {lang}: {stats['accuracy']:.2f}% ({stats['correct']}/{stats['total']})")
+
+        print(f"Validation MAE: {mae:.4f}")
+        print(f"Validation MRE: {mre:.2f}%")
+        for lang, stats in per_language_metrics.items():
+            print(
+                f"  {lang}: MAE={stats['mean_absolute_error']:.4f}, "
+                f"MRE={stats['mean_relative_error']:.2f}% ({stats['count']})"
+            )
         print("="*30 + "\n")
         
         output_file = f"{log_validation_path}/val_{global_update}.jsonl"
@@ -479,18 +483,18 @@ class Trainer:
             for result in validation_results:
                 f.write(json.dumps(result, ensure_ascii=False) + "\n")
             
-            per_language_summary = {"per_language_summary": per_language_accuracy}
+            per_language_summary = {"per_language_summary": per_language_metrics}
             f.write(json.dumps(per_language_summary, ensure_ascii=False) + "\n")
             summary = {
                 "summary": {
-                    "accuracy": accuracy,
-                    "correct": correct_predictions,
-                    "total": total_predictions,
+                    "mean_absolute_error": mae,
+                    "mean_relative_error": mre,
+                    "count": len(validation_results),
                 }
             }
             f.write(json.dumps(summary, ensure_ascii=False) + "\n")
 
-        all_accuracies = []
+        all_metrics = []
         for filename in os.listdir(log_validation_path):
             if filename.startswith("val_") and filename.endswith(".jsonl"):
                 try:
@@ -508,31 +512,41 @@ class Trainer:
                                 summary_data = record
 
                         if summary_data is not None:
-                            file_accuracy = summary_data["summary"]["accuracy"]
-                            all_accuracies.append(
+                            summary_metrics = summary_data["summary"]
+                            if "mean_absolute_error" not in summary_metrics:
+                                continue
+
+                            file_mae = summary_metrics["mean_absolute_error"]
+                            file_mre = summary_metrics.get("mean_relative_error")
+                            all_metrics.append(
                                 {
                                     "step": update,
-                                    "accuracy": file_accuracy,
-                                    "per_language_accuracy": per_language_data or {},
+                                    "mean_absolute_error": file_mae,
+                                    "mean_relative_error": file_mre,
+                                    "per_language_summary": per_language_data or {},
                                 }
                             )
                 except (ValueError, json.JSONDecodeError, FileNotFoundError) as e:
                     print(f"Error processing {filename}: {e}")
                     continue
 
-        all_accuracies.sort(key=lambda x: x["step"])
-        
-        best_accuracy = max(all_accuracies, key=lambda x: x["accuracy"])
-        
+        all_metrics.sort(key=lambda x: x["step"])
+
+        best_metrics = min(all_metrics, key=lambda x: x["mean_absolute_error"])
+
         summary_file = f"{log_validation_path}/accuracy_summary.jsonl"
         with open(summary_file, "w", encoding="utf-8") as f:
-            for acc_record in all_accuracies:
-                f.write(json.dumps(acc_record, ensure_ascii=False) + "\n")
-            
-            f.write(json.dumps({"best": best_accuracy}, ensure_ascii=False) + "\n")
+            for metric_record in all_metrics:
+                f.write(json.dumps(metric_record, ensure_ascii=False) + "\n")
 
-        self.accelerator.log({"validation/accuracy": accuracy}, step=global_update)
+            f.write(json.dumps({"best": best_metrics}, ensure_ascii=False) + "\n")
+
+        self.accelerator.log(
+            {"validation/mean_absolute_error": mae, "validation/mean_relative_error": mre},
+            step=global_update,
+        )
         if self.logger == "tensorboard":
-            self.writer.add_scalar("validation/accuracy", accuracy, global_update)
+            self.writer.add_scalar("validation/mean_absolute_error", mae, global_update)
+            self.writer.add_scalar("validation/mean_relative_error", mre, global_update)
 
         self.model.train()

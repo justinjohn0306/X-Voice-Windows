@@ -53,7 +53,6 @@ def main(cfg):
         log_samples=cfg.ckpts.log_samples,
         bnb_optimizer=cfg.optim.bnb_optimizer,
         cfg_dict=OmegaConf.to_container(cfg, resolve=True),
-        allowed_error=cfg.eval.allowed_error
     )
 
     train_dataset = load_dataset(
