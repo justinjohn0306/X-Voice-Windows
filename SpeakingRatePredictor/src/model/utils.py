@@ -27,6 +27,7 @@ if str(MAVL_ROOT) not in sys.path:
     sys.path.insert(0, str(MAVL_ROOT))
 
 from process_syllable.japanese import split_syllables as ja_split_syllables
+from finnsyll import FinnSyll
 
 def seed_everything(seed=0):
     random.seed(seed)
@@ -85,7 +86,7 @@ PYPHEN_LANG_MAP = {
     "it": "it_IT",
     "lt": "lt_LT",
     "lv": "lv_LV",
-    "mt": "mt_MT",
+    "mt": "it_IT",
     "nl": "nl_NL",
     "pl": "pl_PL",
     "pt": "pt_PT",
@@ -104,7 +105,7 @@ def extract_pyphen_text(text: str) -> str:
     return " ".join(tokens)
 
 
-def count_syllables(text: str, lang: str) -> int:
+def count_syllables_pure(text: str, lang: str) -> int:
     if not text:
         return 0
 
@@ -143,25 +144,32 @@ def count_syllables(text: str, lang: str) -> int:
     pyphen_lang = PYPHEN_LANG_MAP.get(lang, "en_US")
     if pyphen_lang not in _PYPHEN_CACHE:
         try:
-            _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
-        except Exception:
+            if lang == "fi":
+                _PYPHEN_CACHE[pyphen_lang] = FinnSyll()
+            else:
+                _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
+        except Exception as e:
+            print(f"Not support {lang}. Fall back to English.")
             if "en_US" not in _PYPHEN_CACHE:
                 _PYPHEN_CACHE["en_US"] = pyphen.Pyphen(lang="en_US")
             pyphen_lang = "en_US"
-
     dic = _PYPHEN_CACHE[pyphen_lang]
     total = 0
     for word in clean_text.split():
-        if word:
-            total += len(dic.inserted(word).split("-"))
+        if word.strip():
+            if lang == "fi":
+                total += len(dic.syllabify(word)[0].split('.'))
+            else:
+                total += len(dic.inserted(word).split("-"))
     return total
 
-def count_syllables_(text: str, lang: str) -> int:
-    def count_punctuations(text):
-        punct_chars = set(',.?!;:。，、！？；：')
-        punct_syllables = 0
-        for char in text:
-            if char in punct_chars:
-                punct_syllables += 1
-        return punct_syllables
-    return count_syllables(text, lang) + count_punctuations(text)
+PUNCT_CHARS = set(',.?!;:。，、！？；：')
+def count_punctuations(text):
+    punct_syllables = 0
+    for char in text:
+        if char in PUNCT_CHARS:
+            punct_syllables += 1
+    return punct_syllables
+
+def count_syllables(text: str, lang: str) -> int:
+    return count_syllables_pure(text, lang) + count_punctuations(text)

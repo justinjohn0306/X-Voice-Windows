@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 SRC_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(SRC_DIR))
-from model.utils import extract_pyphen_text, count_syllables_
+from model.utils import extract_pyphen_text, count_syllables
 
 
 
@@ -84,7 +84,7 @@ def build_sample(audio_path: str, text: str, duration: float, lang_code: str):
     if duration <= 0 or not check_valid_chars(text, lang=lang_code):
         return None
 
-    syllable_count = count_syllables_(text, lang_code)
+    syllable_count = count_syllables(text, lang_code)
     speed_syllables = map_to_class(syllable_count / duration)
     if syllable_count <= 0 or speed_syllables > 8.0:
         return None
@@ -235,10 +235,10 @@ def main():
     parser.add_argument(
         "--out_dir",
         type=str,
-        default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/Multilingual_F5-TTS/F5-TTS/data",
+        default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/qingyuliu/Multilingual_F5-TTS/SpeakingRatePredictor/data",
         help="Output root dir for SRP data",
     )
-    parser.add_argument("--dataset_name", type=str, required=True)
+    parser.add_argument("--dataset_name", type=str, default="multilingual_250_100")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -248,4 +248,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python src/train/datasets/prepare_multilingual_speed.py --dataset_name multilingual_250_100
+# python src/train/datasets/prepare_multilingual_speed.py --dataset_name multilingual_250_100_v2

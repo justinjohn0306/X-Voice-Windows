@@ -12,6 +12,7 @@ pip install pyphen
 pip install pykakasi
 pip install python-crfsuite
 pip install num2words
+pip install finnsyll
 ```
 
 ## Data Augmentation: Silence Injection

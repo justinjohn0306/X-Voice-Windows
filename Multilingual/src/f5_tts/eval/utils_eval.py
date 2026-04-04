@@ -187,8 +187,7 @@ def extract_pyphen_text(text: str) -> str:
     tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
     return " ".join(tokens)
 
-
-def count_syllables(text: str, lang: str) -> int:
+def count_syllables_pure(text: str, lang: str) -> int:
     if not text:
         return 0
 
@@ -227,28 +226,35 @@ def count_syllables(text: str, lang: str) -> int:
     pyphen_lang = PYPHEN_LANG_MAP.get(lang, "en_US")
     if pyphen_lang not in _PYPHEN_CACHE:
         try:
-            _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
-        except Exception:
+            if lang == "fi":
+                _PYPHEN_CACHE[pyphen_lang] = FinnSyll()
+            else:
+                _PYPHEN_CACHE[pyphen_lang] = pyphen.Pyphen(lang=pyphen_lang)
+        except Exception as e:
+            print(f"Not support {lang}. Fall back to English.")
             if "en_US" not in _PYPHEN_CACHE:
                 _PYPHEN_CACHE["en_US"] = pyphen.Pyphen(lang="en_US")
             pyphen_lang = "en_US"
-
     dic = _PYPHEN_CACHE[pyphen_lang]
     total = 0
     for word in clean_text.split():
-        if word:
-            total += len(dic.inserted(word).split("-"))
+        if word.strip():
+            if lang == "fi":
+                total += len(dic.syllabify(word)[0].split('.'))
+            else:
+                total += len(dic.inserted(word).split("-"))
     return total
 
-def count_syllables_(text: str, lang: str) -> int:
-    def count_punctuations(text):
-        punct_chars = set(',.?!;:。，、！？；：')
-        punct_syllables = 0
-        for char in text:
-            if char in punct_chars:
-                punct_syllables += 1
-        return punct_syllables
-    return count_syllables(text, lang) + count_punctuations(text)
+PUNCT_CHARS = set(',.?!;:。，、！？；：')
+def count_punctuations(text):
+    punct_syllables = 0
+    for char in text:
+        if char in PUNCT_CHARS:
+            punct_syllables += 1
+    return punct_syllables
+
+def count_syllables(text: str, lang: str) -> int:
+    return count_syllables_pure(text, lang) + count_punctuations(text)
 
 def get_inference_prompt(
     metainfo,
@@ -400,7 +406,7 @@ def get_inference_prompt(
             else:
                 if sp_type == "pretrained":
                     assert model_sp is not None
-                    gt_num_unit = count_syllables_(gt_text, language)
+                    gt_num_unit = count_syllables(gt_text, language)
                     ref_mel_t = ref_mel.unsqueeze(0).permute(0, 2, 1)
                     ref_mel_tensor = ref_mel_t.to(device)
                     ref_mel_len_tensor = torch.tensor([ref_mel_len], dtype=torch.long).to(device)
