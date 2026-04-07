@@ -5,21 +5,32 @@ import pandas as pd
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="汇总多语言评测结果")
-    parser.add_argument("--decode_dir", type=str, required=True, help="结果根目录")
-    parser.add_argument("--test_set", type=str, required=True, help="空格分隔的语言列表")
+    parser = argparse.ArgumentParser(description="Collect evaluation results for multilingual TTS")
+    parser.add_argument("--decode_dir", type=str, required=True, help="Results root directory")
+    parser.add_argument("--test_set", type=str, required=True, help="Space-separated list of languages")
+    parser.add_argument("--ref_set", type=str, default=None, help="Space-separated list of languages")
     return parser.parse_args()
 
 def main():
     args = parse_args()
     decode_dir = args.decode_dir
     test_set = args.test_set.split()
-    summary_file = os.path.join(decode_dir, "summary_results.csv")
+    if args.ref_set:
+        ref_set = args.ref_set.split()
+        summary_file = os.path.join(decode_dir, "summary_results_cross.csv")
+    else:
+        summary_file = os.path.join(decode_dir, "summary_results.csv")
 
     results = []
     print("collecting")
-    for lang in test_set:
-        lang_path = os.path.join(decode_dir, lang)
+    for i, lang in enumerate(test_set):
+        if ref_set:
+            ref_lang = ref_set[i]
+            lang_path = os.path.join(decode_dir, f"{ref_lang}-{lang}")
+            if not os.path.exists(lang_path):
+                lang_path = os.path.join(decode_dir, f"{ref_lang}_{lang}")
+        else:
+            lang_path = os.path.join(decode_dir, lang)
         row = {"Language": lang, "WER": "N/A", "SIM": "N/A", "UTMOS": "N/A", "DNSMOS": "N/A"}
         
         # 解析 WER

@@ -28,11 +28,7 @@ from f5_tts.model import CFM, CFM_SFT
 from f5_tts.model.utils import get_tokenizer, get_ipa_id
 from f5_tts.eval.speaking_rate_predictor import SpeedPredictor
 
-from f5_tts.train.datasets.ipa_tokenizer import PhonemizeTextTokenizer
-from f5_tts.train.datasets.ipa_v2_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v2
 from f5_tts.train.datasets.ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v3
-from f5_tts.train.datasets.ipa_v4_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v4
-from f5_tts.train.datasets.ipa_v5_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v5
 from f5_tts.train.datasets.ipa_v6_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v6
 
 # import debugpy
@@ -78,7 +74,6 @@ def main():
     parser.add_argument("--decode_dir", default=None, type=str)
     parser.add_argument("--concat_method", default=1, type=int)
     parser.add_argument("--layered", action="store_true")
-    parser.add_argument("--prompt_v", action="store_true")
     parser.add_argument("--drop_text", action="store_true")
     
     parser.add_argument("--cross_lingual", action="store_true")
@@ -106,7 +101,8 @@ def main():
     cross_lingual = args.cross_lingual
     decode_dir = args.decode_dir
     concat_method = args.concat_method
-    
+    if sp_type in ["utf", "syllable"]:
+        assert not drop_text, "\"utf\" or \"syllable\" methods need reference text to predict duration, if you want transcript free inference, use \"pretrained\" method"
     in2lang = { 
         "th":"thai", "id":"indonesian", "vi":"vietnamese", 
         "zh":"chinese", "en":"english",
@@ -146,7 +142,6 @@ def main():
     cfg_strength = args.cfg_strength
     cfg_strength2 = args.cfg_strength2
     layered = args.layered
-    prompt_v = args.prompt_v
     speed = 1.0
     use_truth_duration = False
     no_ref_audio = False
@@ -195,7 +190,7 @@ def main():
     if mel_spec_type == "vocos":
         vocoder_local_path = "my_vocoder/vocos-mel-24khz"
     elif mel_spec_type == "bigvgan":
-        vocoder_local_path = "../checkpoints/bigvgan_v2_24khz_100band_256x"
+        vocoder_local_path = "my_vocoder/bigvgan_v2_24khz_100band_256x"
     vocoder = load_vocoder(vocoder_name=mel_spec_type, is_local=local, local_path=vocoder_local_path)
 
     # Tokenizer
@@ -266,10 +261,7 @@ def main():
     text_infill_lang_type = model.transformer.text_infill_lang_type
     time_infill_lang_type = model.transformer.time_infill_lang_type
     tokenizer_class_map = {
-        "ipa": PhonemizeTextTokenizer,
-        "ipa_v2": PhonemizeTextTokenizer_v2,
         "ipa_v3": PhonemizeTextTokenizer_v3,
-        "ipa_v5": PhonemizeTextTokenizer_v5,
         "ipa_v6": PhonemizeTextTokenizer_v6,
     }
     for i, in_language in enumerate(target_languages):
@@ -296,25 +288,15 @@ def main():
             librispeech_test_clean_path = "/inspire/dataset/libritts/v1/test-clean"  # test-clean path
             metainfo = get_librispeech_test_clean_metainfo(metalst, librispeech_test_clean_path)
 
-        elif testset == "seedtts_test_zh":
-            data_dir = rel_path + "/data/seedtts_testset/zh"
+        elif testset == "seedtts_testset":
+            data_dir = rel_path + f"/data/seedtts_testset/{in_language}"
             metalst = data_dir + "/meta.lst"
-            metainfo = get_seedtts_testset_metainfo(metalst)
-
-        elif testset == "seedtts_test_en":
+            metainfo = get_seedtts_testset_metainfo(metalst, drop_text=drop_text)
             
-            data_dir = rel_path + "/data/seedtts_testset/en"
-            metalst = data_dir + "/meta.lst"
-            metainfo = get_seedtts_testset_metainfo(metalst)
-            
-        elif testset in ["cv3_eval", "lemas_eval", "lemas_eval_new", "mixed_eval", "mixed_eval_with_gt"]:
+        elif testset in ["lemas_eval", "mixed_eval_with_gt"]:
             data_dir = rel_path + f"/data/{testset}/zero_shot/{in_language}"
             print(f"Loading {testset} data from: {data_dir}")
             metainfo = get_testset_metainfo(data_dir, in_language, ref_language, drop_text=drop_text)
-            
-            # task_lang_path = data_dir.split(f"{testset}/")[-1] # 要改！
-            # output_dir = f"results/{task_lang_path}/wavs" # 生成到 results/zero_shot/bg/wavs
-            # print(f"Override output_dir to: {output_dir}")
 
 
         # path to save genereted wavs
@@ -343,11 +325,10 @@ def main():
                     f"{'_no-ref-audio' if no_ref_audio else ''}"
                     "zero_shot"
                 )
-        if testset in ["cv3_eval","lemas_eval", "lemas_eval_new", "mixed_eval", "mixed_eval_with_gt"]:
-            if cross_lingual:
-                output_dir += f"/{ref_language}_{in_language}/wavs"
-            else:
-                output_dir += f"/{in_language}/wavs"
+        if cross_lingual:
+            output_dir += f"/{ref_language}_{in_language}/wavs"
+        else:
+            output_dir += f"/{in_language}/wavs"
                 
         print(f"will be saved to:{output_dir}")
         
@@ -393,7 +374,7 @@ def main():
                 batch_lang_ids = []
                 batch_prompt_lang_ids = []
                 for r_len, g_len in zip(ref_text_lens, gen_text_lens):
-                    if cross_lingual and not drop_text and text_infill_lang_type in ["token_concat", "ada"]:
+                    if cross_lingual and text_infill_lang_type in ["token_concat", "ada"]:
                         if concat_method == 1:
                             ids = [ref_language_idx] * r_len + [in_language_idx] * g_len
                         elif concat_method == 2:
@@ -402,19 +383,9 @@ def main():
                             unk_idx = len(lang_to_id)
                             ids = [unk_idx] * r_len + [in_language_idx] * g_len
                     else:
-                        ids = [in_language_idx] * r_len + [in_language_idx] * g_len
-                    if drop_text:
-                        ids = [in_language_idx]
+                        ids = [in_language_idx] * (r_len + g_len)
                     batch_lang_ids.append(torch.tensor(ids))
-                    if prompt_v:
-                        prompt_ids = [ref_language_idx] * (r_len + g_len)
-                        batch_prompt_lang_ids.append(torch.tensor(prompt_ids))
                 lang_ids_tensor = pad_sequence(batch_lang_ids, batch_first=True, padding_value=in_language_idx).to(device)
-                if prompt_v:
-                    prompt_lang_ids_tensor = pad_sequence(batch_prompt_lang_ids, batch_first=True, padding_value=ref_language_idx).to(device)
-                else:
-                    prompt_lang_ids_tensor = None
-
                 with torch.inference_mode():
                     generated, _ = model.sample(
                         cond=ref_mels,
@@ -432,23 +403,23 @@ def main():
                         reverse=reverse,
                         cfg_strength2=cfg_strength2,
                         layered=layered,
-                        prompt_ids=prompt_lang_ids_tensor,
+                        infer_mode=(False if dtype == torch.float32 else True),
                     )
                     # Final result
-                    # def strong_asymptotic_saturation(mel, threshold=2.8, limit=3.5, start_bin=60):
-                    #     mel_high = mel[:, :, start_bin:]
-                    #     def apply_limit(x, t, m):
-                    #         # 只有超过threshold的部分才进入tanh
-                    #         margin = m - t
-                    #         return torch.where(
-                    #             x < t,
-                    #             x,
-                    #             t + margin * torch.tanh((x - t) / margin)
-                    #         )
-                    #     mel[:, :, start_bin:] = apply_limit(mel_high, threshold, limit)
-                    #     return mel
+                    def strong_asymptotic_saturation(mel, threshold=2.8, limit=3.5, start_bin=60):
+                        mel_high = mel[:, :, start_bin:]
+                        def apply_limit(x, t, m):
+                            # 只有超过threshold的部分才进入tanh
+                            margin = m - t
+                            return torch.where(
+                                x < t,
+                                x,
+                                t + margin * torch.tanh((x - t) / margin)
+                            )
+                        mel[:, :, start_bin:] = apply_limit(mel_high, threshold, limit)
+                        return mel
                     
-                    # generated = strong_asymptotic_saturation(generated, threshold=2.5, limit=3.5)
+                    generated = strong_asymptotic_saturation(generated, threshold=2.5, limit=3.5)
                     
                     for i, gen in enumerate(generated):
                         

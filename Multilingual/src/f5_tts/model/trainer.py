@@ -72,12 +72,12 @@ class Trainer:
             **accelerate_kwargs,
         )
         print(
-            f"🔍 [验证 DDP] "
-            f"进程PID: {os.getpid()} | "
-            f"当前卡号(Local Rank): {self.accelerator.local_process_index} | "
-            f"全局编号(Global Rank): {self.accelerator.process_index} | "
-            f"总进程数(World Size): {self.accelerator.num_processes} | "
-            f"是否为主进程: {self.accelerator.is_main_process}"
+            f"Checking Accelerator setup... | "
+            f"PID: {os.getpid()} | "
+            f"Local Rank: {self.accelerator.local_process_index} | "
+            f"Global Rank: {self.accelerator.process_index} | "
+            f"World Size: {self.accelerator.num_processes} | "
+            f"Is in main process: {self.accelerator.is_main_process}"
         )
 
         self.logger = logger
@@ -111,7 +111,6 @@ class Trainer:
 
             self.writer = SummaryWriter(log_dir=f"runs/{wandb_run_name}")
 
-        # 创建两个模型，EMA是指数移动平均模型，权重会更新为原始模型权重的滑动平均
         self.model = model
 
         if self.is_main:
@@ -164,7 +163,7 @@ class Trainer:
     def is_main(self):
         return self.accelerator.is_main_process
 
-    def save_checkpoint(self, update, last=False):# update代表当前的训练更新步数，last会有不同的文件名
+    def save_checkpoint(self, update, last=False):
         self.accelerator.wait_for_everyone()
         if self.is_main:
             checkpoint = dict(
@@ -233,7 +232,7 @@ class Trainer:
                         filtered_dict[clean_k] = v
                 # 加载到主模型
                 model_obj.load_state_dict(filtered_dict, strict=False)
-                # 加载到 Trainer 的 EMA 模型 (确保同步)
+                # 加载到 Trainer 的 EMA 模型
                 if self.is_main:
                     self.ema_model.ema_model.load_state_dict(filtered_dict, strict=False)
                 
@@ -446,10 +445,6 @@ class Trainer:
                     mel_spec = batch["mel"].permute(0, 2, 1)
                     mel_lengths = batch["mel_lengths"]
                     current_ids = language_ids = batch["language_ids"]
-                    #print(mel_spec.shape,mel_lengths,current_ids)
-                    # if random.random()<0.1:
-                    #     print(language_ids)
-                    #print(f"text_inputs:{text_inputs}")
 
                     # TODO. add duration predictor training
                     if self.duration_predictor is not None and self.accelerator.is_local_main_process:

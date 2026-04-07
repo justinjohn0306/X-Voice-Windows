@@ -117,7 +117,6 @@ class CFM_SFT(nn.Module):
         layered=False,
         cfg_strength2=0.0, # for layered cfg
         infer_mode=True,
-        prompt_ids: torch.Tensor | None = None,
         codeswitch_time_unknown_lang: bool = False,
     ):
         self.eval()
@@ -274,7 +273,6 @@ class CFM_SFT(nn.Module):
                 language_ids=language_ids,
                 layered=layered,
                 infer_mode=infer_mode,
-                prompt_ids=prompt_ids,
                 codeswitch_time_unknown_lang=codeswitch_time_unknown_lang,
             )
             
@@ -283,21 +281,12 @@ class CFM_SFT(nn.Module):
                 delta_lang = pred - text_pred
                 delta_content = text_pred - null_pred  # 内容增量：从噪音到“平均发音”
                 res = null_pred + (1.0 + current_cfg2) * delta_content + (1.0 + current_cfg) * delta_lang
-                #res = null_pred + (1.0 + current_cfg) * (pred - text_pred) + (1.0 + current_cfg2) * (text_pred - null_pred)
-                if 0.3 < t < 0.6:
-                    print(f"content.mean: {delta_content.mean()}, lang.mean: {delta_lang.mean()}") 
+                # if 0.3 < t < 0.6:
+                #     print(f"content.mean: {delta_content.mean()}, lang.mean: {delta_lang.mean()}") 
             else:
                 pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
                 res = pred + (pred - null_pred) * current_cfg
             
-            # # 缩放res
-            # rescale_phi = 0.7             
-            # std_pos = torch.std(pred, dim=(1, 2), keepdim=True) + 1e-5
-            # std_cfg = torch.std(res, dim=(1, 2), keepdim=True) + 1e-5
-            # # 缩放后的 v
-            # res_rescaled = res * (std_pos / std_cfg)
-            # # 最终的 v 是 原始v 和 缩放v 的平滑混合
-            # res= rescale_phi * res_rescaled + (1.0 - rescale_phi) * res
             return res
 
 

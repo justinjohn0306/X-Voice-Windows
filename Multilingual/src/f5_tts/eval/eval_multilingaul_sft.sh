@@ -2,11 +2,10 @@
 # bash src/f5_tts/eval/eval_multilingual_sft.sh
 asr_gpu=8
 task=zero_shot
-dataset=mixed_eval_with_gt # lemas_eval, mixed_eval, lemas_eval_new
-ckpt=100000
-exp_name=F5TTS_v1_Base_multilingual_full_catada_sft # M3TTS_Small_multilingual_v1
-test_set="zh" #hu id it ja ko lt lv mt nl pl pt ro ru sk sl sv th vi zh" # da el es et fi fr hr hu id it lt mt nl pl pt sk sl sv th de" #cs da el es et fi fr ko" 
-# test_set="bg cs da de el en es et fi fr hu hr id it ja ko lt lv mt nl pl pt ro sk sl sv th vi ru" # en fr pt es de it vi ru id"
+dataset=mixed_eval_with_gt # lemas_eval
+ckpt=70000
+exp_name=F5TTS_v1_Base_multilingual_full_catada_sft_v2
+test_set="bg cs da de el en es et fi fr hu hr id it ja ko lt lv mt nl pl pt ro sk sl sv th vi ru zh"
 
 
 seed=0
@@ -31,7 +30,7 @@ if [ "$layered" = "True" ]; then
         --normalize_text \
         --decode_dir "${decode_dir}" \
         --drop_text \
-        --sp_type ${sp_type}  -ns "SpeedPredict_Base" -cs 20000  #--reverse 
+        --sp_type ${sp_type}  -ns "SpeedPredict_Multilingual" -cs 28000 #--reverse 
 else
     decode_dir="${PROJECT_ROOT}/results/${exp_name}_${ckpt}/${dataset}/${sp_type}_seed${seed}_concat${concat_method}_schedule${cfg_schedule}_euler_nfe${nfe}_vocos_ss-1_cfg${cfg_strength}_speed1.0zero_shot"
     # Inference
@@ -41,7 +40,7 @@ else
         --normalize_text \
         --decode_dir "${decode_dir}" \
         --drop_text \
-        --sp_type ${sp_type} # -ns "SpeedPredict_Base" -cs 20000 #--reverse 
+        --sp_type ${sp_type} -ns "SpeedPredict_Multilingual" -cs 28000 #--reverse 
 fi
 
 

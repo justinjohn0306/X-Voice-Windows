@@ -1,10 +1,9 @@
 # bash src/f5_tts/eval/eval_multilingual_gt.sh
 # 修改下面的配置
-asr_gpu=2
+asr_gpu=8
 task=zero_shot
-test_set="bg da de el en es et fi fr hu id it ja ko lt lv mt nl pl pt ro ru sk sl sv th vi zh" #cs da el es et fi fr "zh en hard_zh hard_en ja ko ..." 
-dataset=mixed_eval # cv3_eval
-
+test_set="en" #"bg cs da de el en es et fi fr hu hr id it ja ko lt lv mt nl pl pt ro sk sl sv th vi ru" # da de el en es et fi fr hu id it ja ko lt lv nl pl pt ro sk sl sv th" #"cs da de el es et fi fr hu id it lt lv nl pl pt ro sk sl sv th" #cs da el es et fi fr "zh en hard_zh hard_en ja ko ..." 
+dataset=mixed_eval_with_gt # lemas_eval
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../../../" && pwd )"
@@ -29,8 +28,19 @@ test_gt="true"
 for lang in ${test_set}; do
     # WER
     echo "[INFO] Scoring WER for ${decode_dir}/${lang}"
-    bash utils/cal_wer.sh ${decode_dir}/${lang}/prompt_text  ${decode_dir}/${lang} ${lang} ${asr_gpu} "${test_gt}"
-    find ${decode_dir}/${lang}/waveform -name *.wav | awk -F '/' '{print $NF, $0}' | sed "s@\.wav @ @g" > ${decode_dir}/${lang}/wav.scp
+    bash utils/cal_wer.sh ${decode_dir}/${lang}/text  ${decode_dir}/${lang} ${lang} ${asr_gpu} "${test_gt}"
+    find ${decode_dir}/${lang}/ground_truth -name *.wav | awk -F '/' '{print $NF, $0}' | sed "s@\.wav @ @g" > ${decode_dir}/${lang}/wav.scp
+
+    # SIM
+    echo "[INFO] Scoring SIM for inferences in ${decode_dir}/${lang}" 
+    python eval_similarity.py \
+    --ckpt_path ${PROJECT_ROOT}/wavlm_large_finetune.pth \
+    --prompt_wavs ${decode_dir}/${lang}/prompt_wav.scp \
+    --hyp_wavs ${decode_dir}/${lang}/wav.scp \
+    --log_file ${decode_dir}/${lang}/spk_simi_scores.txt \
+    --devices "0" \
+    --decode_dir ${decode_dir}\
+    --dump_dir ${cv3_dir}
     
     # UTMOS
     echo "[INFO] Scoring UTSMOS  for ${decode_dir}/${lang}"  
@@ -41,3 +51,5 @@ for lang in ${test_set}; do
     # python ${DNSMOS_LAB}/dnsmos_local_wavscp.py -t ${decode_dir}/${lang}/wav.scp -e ${DNSMOS_LAB} -o ${decode_dir}/${lang}/mos.csv
     # cat ${decode_dir}/${lang}/mos.csv | sed '1d' |awk -F ',' '{ sum += $NF; count++ } END { if (count > 0) print sum / count }'  > ${decode_dir}/${lang}/dnsmos_mean.txt
 done
+echo "[INFO] Collecting final result"
+python collect_results.py --decode_dir "${decode_dir}" --test_set "${test_set}"

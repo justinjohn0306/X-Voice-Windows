@@ -46,7 +46,7 @@ model:
     use_ctc: False
     lang_dim: 512
     lang_dim_in_t: 512
-    drop_lang_in_time: True
+    drop_lang_in_time: False
     share_lang_embed: True
   mel_spec:
     target_sample_rate: 24000

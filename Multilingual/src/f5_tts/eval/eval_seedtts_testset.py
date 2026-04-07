@@ -31,8 +31,9 @@ def main():
     args = get_args()
     eval_task = args.eval_task
     lang = args.lang
-    gen_wav_dir = args.gen_wav_dir
+    gen_wav_dir = args.gen_wav_dir + f"/{lang}/wavs"
     metalst = rel_path + f"/data/seedtts_testset/{lang}/meta.lst"  # seed-tts testset
+    result_path = f"{args.gen_wav_dir}/{lang}/_{eval_task}_results.jsonl"
 
     # NOTE. paraformer-zh result will be slightly different according to the number of gpus, cuz batchsize is different
     #       zh 1.254 seems a result of 4 workers wer_seed_tts
@@ -72,7 +73,6 @@ def main():
     else:
         raise ValueError(f"Unknown metric type: {eval_task}")
 
-    result_path = f"{gen_wav_dir}/_{eval_task}_results.jsonl"
     with open(result_path, "w") as f:
         for line in full_results:
             metrics.append(line[eval_task])

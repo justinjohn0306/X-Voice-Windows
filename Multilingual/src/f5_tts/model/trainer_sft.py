@@ -73,12 +73,12 @@ class Trainer_SFT:
             **accelerate_kwargs,
         )
         print(
-            f"🔍 [验证 DDP] "
-            f"进程PID: {os.getpid()} | "
-            f"当前卡号(Local Rank): {self.accelerator.local_process_index} | "
-            f"全局编号(Global Rank): {self.accelerator.process_index} | "
-            f"总进程数(World Size): {self.accelerator.num_processes} | "
-            f"是否为主进程: {self.accelerator.is_main_process}"
+            f"Checking Accelerator setup... | "
+            f"PID: {os.getpid()} | "
+            f"Local Rank: {self.accelerator.local_process_index} | "
+            f"Global Rank: {self.accelerator.process_index} | "
+            f"World Size: {self.accelerator.num_processes} | "
+            f"Is in main process: {self.accelerator.is_main_process}"
         )
 
         self.logger = logger

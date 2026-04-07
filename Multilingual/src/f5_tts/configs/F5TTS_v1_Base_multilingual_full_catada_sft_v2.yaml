@@ -1,17 +1,17 @@
-# 用bf16训练，加入了中文pinyin，泰文pythainlp，将language_id和时间concat来注入语言
+
 hydra:
   run:
     dir: ckpts/${model.name}_${model.mel_spec.mel_spec_type}_${model.tokenizer}_${datasets.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 datasets:
-  name: multilingual_clean
+  name: multilingual_phase2
   batch_size_per_gpu: 38400  # 8 GPUs, 8 * 38400 = 307200
   batch_size_type: frame  # frame | sample
   max_samples: 32  # max sequences per batch if use frame-wise batch_size. we set 32 for small models, 64 for base models
   num_workers: 16
 
 optim:
-  epochs: 8
+  epochs: 5
   learning_rate: 7.5e-5
   num_warmup_updates: 20000  # warmup updates
   grad_accumulation_steps: 1  # note: updates = steps / grad_accumulation_steps
@@ -19,10 +19,15 @@ optim:
   bnb_optimizer: False  # use bnb 8bit AdamW optimizer or not
 
 model:
-  name: F5TTS_v1_Base_multilingual_v5  # model name
-  tokenizer: ipa_v3  # tokenizer type
+  name: F5TTS_v1_Base_multilingual_full_catada_sft_v2  # model name
+  tokenizer: ipa_v6  # tokenizer type
   tokenizer_path: null  # if 'custom' tokenizer, define the path want to use (should be vocab.txt)
   backbone: DiT
+  sft: True
+  use_total_text: False # input ref text + target text or only input target text
+  frame_duration: True
+  lang_drop_prob: 0.1
+  cond_drop_prob: 0.1
   arch:
     dim: 1024
     depth: 22
@@ -36,10 +41,16 @@ model:
     attn_backend: torch  # torch | flash_attn
     attn_mask_enabled: False
     checkpoint_activations: False  # recompute activations and save memory for extra compute
-    languages: ["th","id","vi","zh","en","de", "fr", "es", "pl", "it", "nl", "pt","ko","ro","hu","cs","fi","hr","sk","sl","et","lt","bg","el","lv","mt","sv","da"]
-    infill_lang_type: concat
+    languages: ["bg","cs","da","de","el","en", "es", "et", "fi", "fr", "hr", "hu","id","it","ja","ko","lt","lv","mt","nl","pl","pt","ro","ru","sk","sl","sv","th","vi","zh"]
+    text_infill_lang_type: ada
+    time_infill_lang_type: time_concat
     use_swiglu: False
     use_rmsnorm: False
+    use_ctc: False
+    lang_dim: 512
+    lang_dim_in_t: 512
+    drop_lang_in_time: False
+    share_lang_embed: True
   mel_spec:
     target_sample_rate: 24000
     n_mel_channels: 100
@@ -54,10 +65,13 @@ model:
 ckpts:
   logger: tensorboard  # wandb | tensorboard | null
   log_samples: True  # infer random sample per save checkpoint. wip, normal to fail with extra long samples
-  save_per_updates: 10000  # save checkpoint per updates
+  save_per_updates: 5000  # save checkpoint per updates
   keep_last_n_checkpoints: -1  # -1 to keep all, 0 to not save intermediate, > 0 to keep last N checkpoints
-  last_per_updates: 10000  # save last checkpoint per updates
+  last_per_updates: 5000  # save last checkpoint per updates
   save_dir: ckpts/${model.name}_${model.mel_spec.mel_spec_type}_${model.tokenizer}_${datasets.name}
+  pretrained_path: ckpts/F5TTS_v1_Base_multilingual_full_catada_stress_nomask/model_500000.pt
+  freeze_update: null
+  continue_training: False
 
 
-# accelerate launch src/f5_tts/train/train.py  --config-name F5TTS_v1_Base_multilingual_v5.yaml
+# accelerate launch src/f5_tts/train/train_sft.py  --config-name F5TTS_v1_Base_multilingual_full_catada_sft_v2.yaml

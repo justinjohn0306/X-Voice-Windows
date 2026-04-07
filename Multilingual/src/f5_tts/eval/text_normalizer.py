@@ -22,21 +22,7 @@ class TextNormalizer:
         print(f"Successfully created text normalizer for {language}.")
 
     def _init_language_processor(self):
-        # if self.language == "de":
-        #     from german_transliterate.core import GermanTransliterate # de
-        #     return = GermanTransliterate(
-        #         replace={';': ',', ':': ' ','bzw.': 'beziehungsweise', 'u.a.': 'unter anderem','etc.': 'et cetera'},
-        #         sep_abbreviation=' ',
-        #         make_lowercase=True,
-        #         transliterate_ops=[
-        #             'acronym_phoneme',    # 缩写转音素友好型口语（如ABC→ah beh zee）
-        #             'accent_peculiarity', # 清洗特殊Unicode字符，转为ASCII兼容格式
-        #             'amount_money',       # 货币转口语（如250€→zweihundertfünfzig euro）
-        #             'time_of_day',        # 时间转口语（如13:15h→dreizehn uhr fünfzehn）
-        #             'ordinal',            # 序数词转口语（如1.→erste）
-        #             'special',            # 特殊格式转口语（如8/10→acht von zehn）
-        #         ]
-        #     )
+
         if self.language in ["zh","yue"]:
             from tn.chinese.normalizer import Normalizer as zh_normalizer # zh
             return zh_normalizer()
@@ -50,34 +36,6 @@ class TextNormalizer:
             except Exception as e:
                 print(e)
                 return None
-                
-            
-    def split_german_sentence(self, text):
-        if not text:
-            return ""
-        words = text.split()
-        processed_words = []
-        for word in words:
-            # 只尝试拆分长度大于 5 的词
-            if len(word) > 5:
-                try:
-                    # 获取拆分建议
-                    splitting_results = char_split.split_compound(word)
-                    # 如果得分超过阈值0.5，则进行拆分
-                    if splitting_results and splitting_results[0][0] > 0.5:
-                        _, part1, part2 = splitting_results[0]
-                        # 递归处理
-                        processed_words.append(self.split_german_sentence(part1))
-                        processed_words.append(self.split_german_sentence(part2))
-                    else:
-                        processed_words.append(word)
-                except Exception as e: 
-                    print(e)
-                    processed_words.append(word)
-            else:
-                processed_words.append(word)
-                
-        return " ".join(processed_words).strip()
 
     def clean_text_for_tts(self, text):
         text = re.sub(r'\s+', ' ', text).strip() # 合并空格
@@ -134,13 +92,7 @@ class TextNormalizer:
         else:
             replace_num_with_to = partial(self._replace_num, to=to)
             text_normalized = re.sub(r'\d+(\.\d+)?', replace_num_with_to, text_clean)
-        # if self.language == "de":
-        #     if post:
-        #         from compound_split import char_split # de
-        #         text_normalized = self.split_german_sentence(text_normalized)
-        #         text_normalized = text_normalized.lower()
-        #     else:
-        #         text_normalized = text_normalized
+
             
         return text_normalized
 

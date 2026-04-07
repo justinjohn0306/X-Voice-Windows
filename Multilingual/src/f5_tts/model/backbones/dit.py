@@ -40,7 +40,6 @@ class TextEmbedding(nn.Module):
         num_languages=None,
         lang_dim=None,
         text_infill_lang_type=None,
-        lang_dropout_prob=0.0,
         share_lang_embed=False,
         lang_embed_obj=None,
         sft=False,
@@ -49,28 +48,21 @@ class TextEmbedding(nn.Module):
         self.text_embed = nn.Embedding(text_num_embeds + 1, text_dim)  # use 0 as filler token
         self.text_infill_lang_type = text_infill_lang_type
         self.num_languages = num_languages
-        print(f"[debug]: Number of languages: {num_languages}. Language dim: {lang_dim}, drop probability: {lang_dropout_prob}")
-        print("[debug]: If number of languages is None, language ids will  be infilled in time t only, instead of per token. If lang_dim is None, no dropout.")
-        print("[debug]: In new version, should give lang_dim, or set lang_dim to lang_dim_of_t, share_lang_embed to True and give lang_embed_obj.")
-        print("[debug]: In new version, lang_drop_prob has no use, leave it to be handled in cfm.py ")
-        # self.lang_dropout_prob = lang_dropout_prob
+        print(f"[debug]: Number of languages: {num_languages}")
+        print("[debug]: If number of languages is None, language ids will be infilled in time t only, instead of per token.")
         if self.num_languages is not None:
-            if lang_dim is None and not share_lang_embed: 
-                lang_dim = text_dim
-                # 只是前向支持，之前没有drop的逻辑，所以加载ckpt时维度会不匹配，在此修正
-                assert lang_dropout_prob == 0, "If you want to drop language ids, please give lang_dim explicitly."
-                self.lang_embed = nn.Embedding(num_languages, lang_dim) 
-                nn.init.normal_(self.lang_embed.weight, std=0.02)
-            elif share_lang_embed:
-                assert lang_embed_obj is not None
+            if share_lang_embed:
+                assert lang_embed_obj is not None and (lang_dim is None or lang_dim == lang_embed_obj.embedding_dim), "For shared language embedding, lang_embed_obj must be provided and language embedding dim in text must match its embedding dim in time."
                 self.lang_embed = lang_embed_obj
             else:
+                if not lang_dim:
+                    lang_dim = text_dim
                 self.lang_embed = nn.Embedding(num_languages + 1, lang_dim) # 加一个维度作为未知语言
                 nn.init.normal_(self.lang_embed.weight, std=0.02)
+            print(f"[debug]: Language embedding dim in text: {self.lang_embed.embedding_dim}")
             
             if self.text_infill_lang_type == "token_concat":
                 self.fusion = nn.Linear(text_dim + lang_dim, text_dim)
-                
             elif self.text_infill_lang_type == "ada":
                 self.lang_ada_layer = nn.Linear(lang_dim, text_dim * 2) 
         
@@ -167,7 +159,7 @@ class TextEmbedding(nn.Module):
                 # 用于 cfg 或保留文本丢弃语言
                 if drop_lang:
                     current_lang_ids = torch.full_like(current_lang_ids, self.num_languages)
-                # print(f"test: {current_lang_ids}")
+                print(f"test: {current_lang_ids}")
                 l_emb = self.lang_embed(current_lang_ids) # [b, nt, lang_dim] 
                 assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
                 if self.text_infill_lang_type == "token_concat":
@@ -188,7 +180,7 @@ class TextEmbedding(nn.Module):
                         safe_lang_ids,
                         torch.full_like(safe_lang_ids, self.num_languages),
                     )
-                # print(f"test: {safe_lang_ids}")
+                print(f"test: {safe_lang_ids}")
                 l_emb = self.lang_embed(safe_lang_ids) # [b, nt, lang_dim] 
                 assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
                 if self.text_infill_lang_type == "token_concat":
@@ -287,8 +279,7 @@ class DiT(nn.Module):
         use_ctc: bool = False,
         lang_dim: int | None = None, # default to text dim
         lang_dim_in_t: int | None = None, # default to dim
-        lang_dropout_prob=0.0, # 后续不再使用，仅供前向支持
-        drop_lang_in_time: bool | None =False, # 仅供前向支持
+        drop_lang_in_time: bool | None =False, # whether to drop language id in time t branch while training and inference
         share_lang_embed: bool | None =False,
         sft: bool = False,
     ):
@@ -305,11 +296,8 @@ class DiT(nn.Module):
             self.num_languages = len(self.languages)
             self.lang_dim_in_t = lang_dim_in_t if lang_dim_in_t is not None else dim
             if self.time_infill_lang_type in ["add_only",  "time_concat"]:
-                if not self.drop_lang_in_time:
-                    print("[debug]: if you want to drop language id in t, please set drop_lang_in_time to True.")
-                    self.lang_embed = nn.Embedding(self.num_languages, self.lang_dim_in_t)
-                else:
-                    self.lang_embed = nn.Embedding(self.num_languages + 1, self.lang_dim_in_t)
+                self.lang_embed = nn.Embedding(self.num_languages + 1, self.lang_dim_in_t)
+                print(f"[debug]: Language embedding dim in time: {self.lang_embed.embedding_dim}")
                 nn.init.normal_(self.lang_embed.weight, std=0.02)
                 
                 if self.time_infill_lang_type == "time_concat":  
@@ -337,7 +325,6 @@ class DiT(nn.Module):
             num_languages=text_embed_num_langs,
             lang_dim=lang_dim,
             text_infill_lang_type=text_infill_lang_type,
-            lang_dropout_prob=lang_dropout_prob,
             share_lang_embed=share_lang_embed,
             lang_embed_obj=lang_embed_obj,
             sft=sft,
@@ -479,7 +466,6 @@ class DiT(nn.Module):
         time_language_ids: torch.Tensor = None,
         return_ctc: bool = False,
         layered: bool = False,
-        prompt_ids: torch.Tensor = None,
         codeswitch_time_unknown_lang: bool = False,
     ):
         batch, seq_len = x.shape[0], x.shape[1]
@@ -499,16 +485,9 @@ class DiT(nn.Module):
                 )
             else:
                 lang_ids_tensor = language_ids # 可能是 [b] 或 [b, nt]
-                prompt_ids_tensor = prompt_ids
 
-        def get_branch_inputs(d_audio, d_text, d_lang, use_prompt_id=False, prompt_ids=None):
-            curr_lang_ids = None
-            if lang_ids_tensor is not None and not use_prompt_id:
-                curr_lang_ids = lang_ids_tensor.clone()
-                
-            elif use_prompt_id and prompt_ids is not None:
-                curr_lang_ids = prompt_ids_tensor.clone()
-
+        def get_branch_inputs(d_audio, d_text, d_lang):
+            curr_lang_ids = lang_ids_tensor.clone()
             t_branch = t.clone()
             if self.languages is not None and self.time_infill_lang_type in ["add_only", "time_concat"]:
                 if time_language_ids is not None:
@@ -524,18 +503,18 @@ class DiT(nn.Module):
                             device=curr_lang_ids.device,
                             dtype=torch.long,
                         )
-                    else:
+                    else: # sft都会走到这个分支，需要检查batch>1下的合理性
                         # 如果是 [b, nt]，并且没有传入时间维度的language id，则取最后一个 token 代表目标语种
                         g_lang_ids = curr_lang_ids[:, -1]
+                if d_lang and self.drop_lang_in_time:
+                    g_lang_ids = torch.full_like(g_lang_ids, self.num_languages)
+                print(f"时间维度上： {g_lang_ids}")
                 l_emb = self.lang_embed(g_lang_ids)
                 if self.time_infill_lang_type == "add_only":
                     # DiT Additive 融合
                     t_branch = t_branch + self.lang_proj(l_emb)
                 elif self.time_infill_lang_type == "time_concat":
                     t_branch = self.cond_fusion(torch.cat([t_branch, l_emb], dim=-1))
-            
-            # if d_lang and self.drop_lang_in_time:
-            #     curr_lang_ids = torch.full_like(curr_lang_ids, self.num_languages)
 
             x_embed = self.get_input_embed(
                 x, cond, text, 
@@ -549,15 +528,9 @@ class DiT(nn.Module):
             return x_embed, t_branch
                 
         
-        if cfg_infer and not layered and prompt_ids is None:  # pack cond & uncond forward: b n d -> 2b n d
+        if cfg_infer and not layered:  # pack cond & uncond forward: b n d -> 2b n d
             x_cond, t_cond = get_branch_inputs(False, False, False)
             x_uncond, t_uncond = get_branch_inputs(True, True, True)
-            x = torch.cat((x_cond, x_uncond), dim=0)
-            t = torch.cat((t_cond, t_uncond), dim=0)
-            mask = torch.cat((mask, mask), dim=0) if mask is not None else None
-        elif cfg_infer and not layered and prompt_ids is not None:
-            x_cond, t_cond = get_branch_inputs(False, False, False)
-            x_uncond, t_uncond = get_branch_inputs(True, True, True, use_prompt_id=True, prompt_ids=prompt_ids)
             x = torch.cat((x_cond, x_uncond), dim=0)
             t = torch.cat((t_cond, t_uncond), dim=0)
             mask = torch.cat((mask, mask), dim=0) if mask is not None else None

@@ -1,17 +1,17 @@
 # 修改这里的配置
-# bash src/f5_tts/eval/eval_cross_lingual.sh
+# bash src/f5_tts/eval/eval_cross_lingual_sft.sh
 asr_gpu=8
 task=zero_shot
-dataset=mixed_eval_with_gt # lemas_eval
-ckpt=700000
-exp_name=F5TTS_v1_Base_multilingual_full_catada_stress_nomask 
+dataset=mixed_eval_with_gt # lemas_eval, cv3_eval, lemas_eval_new
+ckpt=70000
+exp_name=F5TTS_v1_Base_multilingual_full_catada_sft_v2 # M3TTS_Small_multilingual_v1
 test_set="it zh ru ko en ko ru zh it en"
 ref_set="en it zh ru ko en ko ru zh it"
 
 concat_method=2
 seed=0
 nfe=16
-sp_type=utf
+sp_type=pretrained
 cfg_schedule=linear
 cfg_decay_time=0.6
 cfg_strength=2.5
@@ -37,7 +37,8 @@ if [ "$layered" = "True" ]; then
         --normalize_text \
         --cross_lingual -rl "${ref_set// /,}" \
         --decode_dir "${decode_dir}" \
-        --sp_type ${sp_type} --concat_method ${concat_method} #-ns "SpeedPredict_Multilingual" -cs 28000 #--reverse 
+        --drop_text \
+        --sp_type ${sp_type} --concat_method ${concat_method} -ns "SpeedPredict_Multilingual" -cs 28000 #--reverse 
 
 else
     decode_dir="${PROJECT_ROOT}/results/${exp_name}_${ckpt}/${dataset}/${sp_type}_seed${seed}_concat${concat_method}_euler_nfe${nfe}_vocos_ss-1_cfg${cfg_strength}_speed1.0zero_shot"
@@ -48,7 +49,8 @@ else
         --normalize_text \
         --cross_lingual -rl "${ref_set// /,}" \
         --decode_dir "${decode_dir}" \
-        --sp_type ${sp_type} --concat_method ${concat_method} #-ns "SpeedPredict_Multilingual" -cs 28000 #--reverse 
+        --drop_text \
+        --sp_type ${sp_type} --concat_method ${concat_method} -ns "SpeedPredict_Multilingual" -cs 28000 #--reverse 
 fi
 
 

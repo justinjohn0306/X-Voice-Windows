@@ -37,8 +37,6 @@ def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=Fal
     path_parts = data_dir.split("/")
     data_idx = path_parts.index("zero_shot")
     root_dir = "/".join(path_parts[:data_idx])
-    print("由于没有比较好的语速预测器，现在使用syllable/utf预测时长，故强行设置drop_text为false，否则请注释下一行")
-    drop_text = False
     if drop_text:
         if ref_language:
             prompt_scp = os.path.join(root_dir, "zero_shot", ref_language, "prompt_wav.scp")
@@ -53,14 +51,8 @@ def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=Fal
             prompt_scp = os.path.join(data_dir, "prompt_wav.scp")
             prompt_text_file = os.path.join(data_dir, "prompt_text") 
 
-    # [lht] fix
-    if os.path.exists(os.path.join(data_dir, "text_fix_num")):
-        target_text_file = os.path.join(data_dir, "text_fix_num")
-    elif os.path.exists(os.path.join(data_dir, "text_fix")):
-        target_text_file = os.path.join(data_dir, "text_fix")
-    else:
-        print("未找到 text_fix_num 或 text_fix 文件")
-        target_text_file = os.path.join(data_dir, "text")     
+
+    target_text_file = os.path.join(data_dir, "text")     
 
     utt2wav = {}
     with open(prompt_scp, 'r', encoding='utf-8') as f:
@@ -169,7 +161,7 @@ PYPHEN_LANG_MAP = {
     "it": "it_IT",
     "lt": "lt_LT",
     "lv": "lv_LV",
-    "mt": "mt_MT",
+    "mt": "it_IT",  # pyphen没有mt的语言包，使用意大利语代替
     "nl": "nl_NL",
     "pl": "pl_PL",
     "pt": "pt_PT",
@@ -335,9 +327,7 @@ def get_inference_prompt(
                 elif not drop_text:
                     prompt_text = normalizer.normalize(prompt_text)
                 gt_text = normalizer.normalize(gt_text)
-                if language == "de":
-                    gt_text = "... " + gt_text
-                elif language in ["ja","zh"]:
+                if language in ["ja","zh"]:
                     pass
                 else:
                     gt_text = ". " + gt_text
@@ -419,10 +409,6 @@ def get_inference_prompt(
                     gen_mel_len = int((pred_duration * target_sample_rate) / hop_length)
                     total_mel_len = ref_mel_len + gen_mel_len
                     
-                    # if drop_text:
-                    #     # gen_est = len(gen_text_tokenized)
-                    #     ref_est = int(gt_num_unit / gen_mel_len * ref_mel_len)
-                    #     text_list = [[" "] * int(ref_est * 1.1) + [".", " ", ".", " "] + text_list[0]] 
                 elif sp_type == "syllable":
                     if ref_language:
                         ref_syllables = count_syllables(prompt_text, ref_language)
