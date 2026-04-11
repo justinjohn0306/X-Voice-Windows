@@ -30,7 +30,7 @@ if str(MAVL_ROOT) not in sys.path:
 
 from process_syllable.japanese import split_syllables as ja_split_syllables
 
-def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=False):
+def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=False, use_truth_duration=False):
     """
     data_dir goes to: cv3_eval/zero_shot/[in_language] 
     metainfo: List[Tuple(utt_id, prompt_wav_path, prompt_text, target_text)]
@@ -87,7 +87,12 @@ def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=Fal
             prompt_text = utt2prompt.get(utt_id, None) 
             wav_path_clean = wav_path.replace("data/", "", 1)  
             full_wav_path = os.path.join(root_dir, wav_path_clean)
-            metainfo.append((utt_id, prompt_text, full_wav_path, target_text))
+            if use_truth_duration:
+                cur_id = utt_id.split("_")[-1]
+                gt_wav = os.path.join(data_dir, f"ground_truth/gt_{cur_id}.wav")  
+                metainfo.append((utt_id, prompt_text, full_wav_path, target_text, gt_wav))
+            else:
+                metainfo.append((utt_id, prompt_text, full_wav_path, target_text))
             
     return metainfo
 

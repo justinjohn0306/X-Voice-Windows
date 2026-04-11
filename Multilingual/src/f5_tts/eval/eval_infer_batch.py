@@ -76,6 +76,7 @@ def main():
     parser.add_argument("--layered", action="store_true")
     parser.add_argument("--drop_text", action="store_true")
     
+    parser.add_argument("--use_truth_duration", action="store_true")
     parser.add_argument("--cross_lingual", action="store_true")
     parser.add_argument("-rl", "--reference_languages", default=None, help="Comma separated list of languages, length is the same as --languages")
     
@@ -143,7 +144,7 @@ def main():
     cfg_strength2 = args.cfg_strength2
     layered = args.layered
     speed = 1.0
-    use_truth_duration = False
+    use_truth_duration = args.use_truth_duration
     no_ref_audio = False
 
     model_cfg = OmegaConf.load(str(files("f5_tts").joinpath(f"configs/{exp_name}.yaml")))
@@ -162,6 +163,7 @@ def main():
     
     
     sft = OmegaConf.select(model_cfg, "model.sft", default=False)  
+    stress = OmegaConf.select(model_cfg, "model.stress", default=True)  
     
     
     
@@ -274,12 +276,12 @@ def main():
         if tokenizer in tokenizer_class_map:
             ipa_id = get_ipa_id(in_language) 
             tokenizer_class = tokenizer_class_map[tokenizer]
-            ipa_tokenizer = tokenizer_class(language=ipa_id, with_stress=True)
+            ipa_tokenizer = tokenizer_class(language=ipa_id, with_stress=stress)
             # print("词表不加重音，否则请取消注释，包括下面")
             if cross_lingual:
                 ref_language= reference_languages[i]
                 ref_ipa_id = get_ipa_id(ref_language)
-                ref_ipa_tokenizer = tokenizer_class(language=ref_ipa_id, with_stress=True)
+                ref_ipa_tokenizer = tokenizer_class(language=ref_ipa_id, with_stress=stress)
                 ref_language_idx = lang_to_id.get(ref_language, len(lang_to_id))
         
         if testset == "ls_pc_test_clean":
@@ -296,7 +298,7 @@ def main():
         elif testset in ["lemas_eval", "mixed_eval_with_gt"]:
             data_dir = rel_path + f"/data/{testset}/zero_shot/{in_language}"
             print(f"Loading {testset} data from: {data_dir}")
-            metainfo = get_testset_metainfo(data_dir, in_language, ref_language, drop_text=drop_text)
+            metainfo = get_testset_metainfo(data_dir, in_language, ref_language, drop_text=drop_text, use_truth_duration=use_truth_duration)
 
 
         # path to save genereted wavs
