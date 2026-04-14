@@ -16,9 +16,8 @@ from tqdm import tqdm
 from datasets.arrow_writer import ArrowWriter
 
 from ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v3
-from ipa_v5_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v5
 from ipa_v6_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v6
-from f5_tts.model.utils import str_to_list_ipa_v3, str_to_list_ipa_v5, str_to_list_ipa_v6, get_ipa_id
+from f5_tts.model.utils import str_to_list_ipa_v3, str_to_list_ipa_v6, get_ipa_id
 
 # import debugpy
 # debugpy.listen(('localhost', 5678))
@@ -36,8 +35,6 @@ def get_tokenizer(lang_code, tokenizer):
         try:
             if tokenizer == "ipa_v3":
                 TOKENIZERS[espeak_code] = PhonemizeTextTokenizer_v3(language=espeak_code)
-            elif tokenizer == "ipa_v5":
-                TOKENIZERS[espeak_code] = PhonemizeTextTokenizer_v5(language=espeak_code)
             elif tokenizer == "ipa_v6":
                 TOKENIZERS[espeak_code] = PhonemizeTextTokenizer_v6(language=espeak_code, with_stress=True)
         except RuntimeError as e:
@@ -224,8 +221,6 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, sft_gen_dir, num
                     # 更新 Vocab 
                     if tokenizer == "ipa_v3":
                         tokens = str_to_list_ipa_v3(res['text']) 
-                    elif tokenizer == "ipa_v5":
-                        tokens = str_to_list_ipa_v5(res['text'])
                     elif tokenizer == "ipa_v6":
                         tokens = str_to_list_ipa_v6(res['text'])
                     
@@ -283,7 +278,7 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, sft_gen_dir, num
 
 def main():
     parser = argparse.ArgumentParser()
-    support_tokenizer = ["ipa_v3","ipa_v5", "ipa_v6"]
+    support_tokenizer = ["ipa_v3","ipa_v6"]
     parser.add_argument("--inp_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets",help="Root dir containing metadata_*.csv and wavs/")
     parser.add_argument("--out_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/Multilingual_F5-TTS/F5-TTS/data",help="Output root dir for raw.arrow")
     parser.add_argument("--sft_gen_dir", type=str, required=True, help="Root dir containing generated .pt and .json files (e.g. multilingual_sft_gen)")
