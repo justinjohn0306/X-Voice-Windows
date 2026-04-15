@@ -69,7 +69,7 @@ class CFM_SFT(nn.Module):
         self.audio_drop_prob = audio_drop_prob
         self.cond_drop_prob = cond_drop_prob
         self.lang_drop_prob = lang_drop_prob
-        print(f"[debug]: {audio_drop_prob=}, {cond_drop_prob=}(text, audio, and language), {lang_drop_prob=}(language).")
+
         # transformer
         self.transformer = transformer
         dim = transformer.dim
