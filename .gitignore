@@ -1,0 +1,8 @@
+src/x_voice.egg-info/
+__pycache__/
+*.pyc
+*qyl_test*
+outputs/
+runs/
+*.safetensors
+my_vocoder

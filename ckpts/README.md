@@ -1,0 +1,1 @@
+The pretrained model checkpoints can be reached at [QingyuLiu1/X-Voice/](https://huggingface.co/QingyuLiu1/X-Voice/).

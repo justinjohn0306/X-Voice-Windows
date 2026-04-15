@@ -1,6 +1,0 @@
-[submodule "F5-TTS"]
-	path = F5-TTS
-	url = https://github.com/SWivid/F5-TTS.git
-[submodule "SpeakingRatePredictor/F5-TTS"]
-	path = SpeakingRatePredictor/F5-TTS
-	url = https://github.com/QingyuLiu0521/F5-TTS.git
