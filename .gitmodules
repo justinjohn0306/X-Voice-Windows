@@ -1,0 +1,3 @@
+[submodule "src/third_party/MAVL"]
+	path = src/third_party/MAVL
+	url = https://github.com/k1064190/MAVL
