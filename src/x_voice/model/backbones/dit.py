@@ -156,7 +156,6 @@ class TextEmbedding(nn.Module):
                 # 用于 cfg 或保留文本丢弃语言
                 if drop_lang:
                     current_lang_ids = torch.full_like(current_lang_ids, self.num_languages)
-                # print(f"test: {current_lang_ids}")
                 l_emb = self.lang_embed(current_lang_ids) # [b, nt, lang_dim] 
                 assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
                 if self.text_infill_lang_type == "token_concat":
@@ -170,14 +169,12 @@ class TextEmbedding(nn.Module):
                 no_lang_fusion_mask = current_lang_ids == -1 # mask 前缀 prompt token
                 safe_lang_ids = current_lang_ids.masked_fill(no_lang_fusion_mask, 0) # 不能直接用 -1 查 embedding，因此用0做安全占位符，
 
-                # 用于 cfg 或保留文本丢弃语言
                 if drop_lang: # drop_lang 只作用在非 prompt-token 位置
                     safe_lang_ids = torch.where(
                         no_lang_fusion_mask,
                         safe_lang_ids,
                         torch.full_like(safe_lang_ids, self.num_languages),
                     )
-                print(f"test: {safe_lang_ids}")
                 l_emb = self.lang_embed(safe_lang_ids) # [b, nt, lang_dim] 
                 assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
                 if self.text_infill_lang_type == "token_concat":

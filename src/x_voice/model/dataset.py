@@ -168,6 +168,101 @@ class CustomDataset(Dataset):
             "language_id": language_id,
         }
 
+class CustomDataset_gp(Dataset):
+    def __init__(
+        self,
+        custom_dataset: Dataset,
+        root_dir=None,
+        durations=None,
+        target_sample_rate=24_000,
+        hop_length=256,
+        n_mel_channels=100,
+        n_fft=1024,
+        win_length=1024,
+        mel_spec_type="vocos",
+        preprocessed_mel=False,
+        mel_spec_module: nn.Module | None = None,
+    ):
+        self.data = custom_dataset
+        self.durations = durations
+        self.target_sample_rate = target_sample_rate
+        self.hop_length = hop_length
+        self.n_fft = n_fft
+        self.win_length = win_length
+        self.mel_spec_type = mel_spec_type
+        self.preprocessed_mel = preprocessed_mel
+        self.root_dir = root_dir
+
+        if not preprocessed_mel:
+            self.mel_spectrogram = default(
+                mel_spec_module,
+                MelSpec(
+                    n_fft=n_fft,
+                    hop_length=hop_length,
+                    win_length=win_length,
+                    n_mel_channels=n_mel_channels,
+                    target_sample_rate=target_sample_rate,
+                    mel_spec_type=mel_spec_type,
+                ),
+            )
+
+    def get_frame_len(self, index):
+        if (
+            self.durations is not None
+        ):  # Please make sure the separately provided durations are correct, otherwise 99.99% OOM
+            return self.durations[index] # * self.target_sample_rate / self.hop_length
+        return self.data[index]["total_mel_len"]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        while True:
+            row = self.data[index]
+            ref_text = row["ref_text"]
+            gen_text = row["gen_text"]
+            ref_text_ipa = row["ref_text_ipa"]
+            gen_text_ipa = row["gen_text_ipa"]
+            duration = row["duration"]
+            total_mel_len = row["total_mel_len"]
+            language_id = row["language_id"]
+            rel_path = row["rel_path"]
+            if self.root_dir and not os.path.isabs(rel_path):
+                audio_path = os.path.join(self.root_dir, rel_path)
+            # filter by given length
+            if 0.1 <= duration <= 50:
+                break  # valid
+
+            index = (index + 1) % len(self.data)
+
+        if self.preprocessed_mel:
+            mel_spec = torch.tensor(row["mel_spec"])
+        else:
+            audio, source_sample_rate = torchaudio.load(audio_path)
+
+            # make sure mono input
+            if audio.shape[0] > 1:
+                audio = torch.mean(audio, dim=0, keepdim=True)
+
+            # resample if necessary
+            if source_sample_rate != self.target_sample_rate:
+                resampler = torchaudio.transforms.Resample(source_sample_rate, self.target_sample_rate)
+                audio = resampler(audio)
+
+            # to mel spectrogram
+            mel_spec = self.mel_spectrogram(audio)
+            mel_spec = mel_spec.squeeze(0)  # '1 d t -> d t'
+
+        return {
+            "mel_spec": mel_spec,
+            "rel_path": rel_path,
+            "ref_text": ref_text,
+            "gen_text": gen_text,
+            "ref_text_ipa": ref_text_ipa,
+            "gen_text_ipa": gen_text_ipa,
+            "total_mel_len": total_mel_len,
+            "language_id": language_id,
+        }
 
 class CustomDataset_sft(Dataset):
     def __init__(
@@ -176,7 +271,6 @@ class CustomDataset_sft(Dataset):
         root_dir = None,
         durations=None,
         prompt_frames=None,
-        frame_duration=False,
         target_sample_rate=24_000,
         hop_length=256,
         n_mel_channels=100,
@@ -196,7 +290,6 @@ class CustomDataset_sft(Dataset):
         self.mel_spec_type = mel_spec_type
         self.preprocessed_mel = preprocessed_mel
         self.root_dir = root_dir
-        self.frame_duration = frame_duration
 
         if not preprocessed_mel:
             self.mel_spectrogram = default(
@@ -212,9 +305,7 @@ class CustomDataset_sft(Dataset):
             )
 
     def get_frame_len(self, index):
-        if self.durations is not None and self.frame_duration:
-            return self.durations[index]
-        elif self.durations is not None and self.prompt_frames is not None:
+        if self.durations is not None and self.prompt_frames is not None:
             orig_frames = self.durations[index] * self.target_sample_rate / self.hop_length
             return orig_frames + self.prompt_frames[index]
         elif (
@@ -374,7 +465,6 @@ def load_dataset(
     sft: bool = False,
     mel_spec_module: nn.Module | None = None,
     mel_spec_kwargs: dict = dict(),
-    frame_duration: bool = False,
     root_dir: str | None = None,
 ) -> CustomDataset | HFDataset:
     """
@@ -398,12 +488,8 @@ def load_dataset(
         elif audio_type == "mel":
             train_dataset = Dataset_.from_file(f"{rel_data_path}/mel.arrow")
             preprocessed_mel = True
-        if frame_duration:
-            with open(f"{rel_data_path}/duration_frame.json", "r", encoding="utf-8") as f:
-                data_dict = json.load(f)
-        else:
-            with open(f"{rel_data_path}/duration.json", "r", encoding="utf-8") as f:
-                data_dict = json.load(f)
+        with open(f"{rel_data_path}/duration.json", "r", encoding="utf-8") as f:
+            data_dict = json.load(f)
         durations = data_dict["duration"]
         
         if not sft:
@@ -416,15 +502,12 @@ def load_dataset(
                 **mel_spec_kwargs,
             )
         else:
-            prompt_frames = data_dict.get("prompt_frames", None)
-            if prompt_frames is None and not frame_duration:
-                raise ValueError("prompt_frames is required for SFT mode but got None")
+            prompt_frames = data_dict["prompt_frames"]
             train_dataset = CustomDataset_sft(
                 train_dataset, 
                 root_dir,
                 durations=durations,
                 prompt_frames=prompt_frames,
-                frame_duration=frame_duration,
                 preprocessed_mel=preprocessed_mel,
                 mel_spec_module=mel_spec_module,
                 **mel_spec_kwargs,
@@ -435,15 +518,9 @@ def load_dataset(
             train_dataset = load_from_disk(f"{dataset_name}/raw")
         except:  # noqa: E722
             train_dataset = Dataset_.from_file(f"{dataset_name}/raw.arrow")
-        
-        if frame_duration:
-            with open(f"{rel_data_path}/duration_frame.json", "r", encoding="utf-8") as f:
-                data_dict = json.load(f)
-        else:
-            with open(f"{rel_data_path}/duration.json", "r", encoding="utf-8") as f:
-                data_dict = json.load(f)
-        # with open(f"{dataset_name}/duration.json", "r", encoding="utf-8") as f:
-        #     data_dict = json.load(f)
+
+        with open(f"{dataset_name}/duration.json", "r", encoding="utf-8") as f:
+            data_dict = json.load(f)
         durations = data_dict["duration"]
         train_dataset = CustomDataset(
             train_dataset, durations=durations, preprocessed_mel=preprocessed_mel, **mel_spec_kwargs
@@ -462,76 +539,6 @@ def load_dataset(
     return train_dataset
 
 
-# collation
-
-
-def collate_fn(batch):
-    mel_specs = [item["mel_spec"].squeeze(0) for item in batch]
-    mel_lengths = torch.LongTensor([spec.shape[-1] for spec in mel_specs])
-    max_mel_length = mel_lengths.amax()
-
-    padded_mel_specs = []
-    for spec in mel_specs:
-        padding = (0, max_mel_length - spec.size(-1))
-        padded_spec = F.pad(spec, padding, value=0)
-        padded_mel_specs.append(padded_spec)
-
-    mel_specs = torch.stack(padded_mel_specs)
-
-    text = [item["text"] for item in batch]
-    text_lengths = torch.LongTensor([len(item) for item in text])
-    language_ids = [item["language_id"] for item in batch]
-
-    return dict(
-        mel=mel_specs,
-        mel_lengths=mel_lengths,  # records for padding mask
-        text=text,
-        text_lengths=text_lengths,
-        language_ids=language_ids,
-    )
-
-def collate_fn_sft(batch):
-    mel_specs = []
-    prompt_mel_lengths = []
-
-    for item in batch:
-        prompt = item['prompt_mel']  # Shape: (N, T_prompt)
-        target = item['mel_spec']    # Shape: (N, T_target)
-        
-        combined_mel = torch.cat([prompt, target], dim=1) # Shape: (N, T_total)
-        mel_specs.append(combined_mel)
-        
-        prompt_mel_lengths.append(prompt.shape[1]) 
-
-    mel_lengths = torch.LongTensor([spec.shape[-1] for spec in mel_specs])
-    prompt_mel_lengths = torch.LongTensor(prompt_mel_lengths)
-    max_mel_length = mel_lengths.amax()
-
-    padded_mel_specs = []
-    for spec in mel_specs:
-        padding = (0, max_mel_length - spec.size(-1))
-        padded_spec = F.pad(spec, padding, value=0)
-        padded_mel_specs.append(padded_spec)
-
-    mel_specs = torch.stack(padded_mel_specs)
-
-    text = [item["text"] for item in batch]
-    text_lengths = torch.LongTensor([len(item) for item in text])
-    total_text = [item["total_text"] for item in batch]
-    total_text_lengths = torch.LongTensor([len(item) for item in total_text])
-    language_ids = [item["language_id"] for item in batch]
-
-    return dict(
-        mel=mel_specs,
-        mel_lengths=mel_lengths,  # records for padding mask
-        text=text,
-        text_lengths=text_lengths,
-        total_text=total_text,
-        total_text_lengths=total_text_lengths,
-        prompt_mel_lengths=prompt_mel_lengths,
-        language_ids=language_ids,
-    )
-    
 def load_dataset_gp(
     dataset_name: str,
     root_dir: str,
@@ -596,101 +603,34 @@ def load_dataset_gp(
 
     return train_dataset
 
-class CustomDataset_gp(Dataset):
-    def __init__(
-        self,
-        custom_dataset: Dataset,
-        root_dir=None,
-        durations=None,
-        target_sample_rate=24_000,
-        hop_length=256,
-        n_mel_channels=100,
-        n_fft=1024,
-        win_length=1024,
-        mel_spec_type="vocos",
-        preprocessed_mel=False,
-        mel_spec_module: nn.Module | None = None,
-    ):
-        self.data = custom_dataset
-        self.durations = durations
-        self.target_sample_rate = target_sample_rate
-        self.hop_length = hop_length
-        self.n_fft = n_fft
-        self.win_length = win_length
-        self.mel_spec_type = mel_spec_type
-        self.preprocessed_mel = preprocessed_mel
-        self.root_dir = root_dir
+# collation
 
-        if not preprocessed_mel:
-            self.mel_spectrogram = default(
-                mel_spec_module,
-                MelSpec(
-                    n_fft=n_fft,
-                    hop_length=hop_length,
-                    win_length=win_length,
-                    n_mel_channels=n_mel_channels,
-                    target_sample_rate=target_sample_rate,
-                    mel_spec_type=mel_spec_type,
-                ),
-            )
 
-    def get_frame_len(self, index):
-        if (
-            self.durations is not None
-        ):  # Please make sure the separately provided durations are correct, otherwise 99.99% OOM
-            return self.durations[index] # * self.target_sample_rate / self.hop_length
-        return self.data[index]["total_mel_len"]
+def collate_fn(batch):
+    mel_specs = [item["mel_spec"].squeeze(0) for item in batch]
+    mel_lengths = torch.LongTensor([spec.shape[-1] for spec in mel_specs])
+    max_mel_length = mel_lengths.amax()
 
-    def __len__(self):
-        return len(self.data)
+    padded_mel_specs = []
+    for spec in mel_specs:
+        padding = (0, max_mel_length - spec.size(-1))
+        padded_spec = F.pad(spec, padding, value=0)
+        padded_mel_specs.append(padded_spec)
 
-    def __getitem__(self, index):
-        while True:
-            row = self.data[index]
-            ref_text = row["ref_text"]
-            gen_text = row["gen_text"]
-            ref_text_ipa = row["ref_text_ipa"]
-            gen_text_ipa = row["gen_text_ipa"]
-            duration = row["duration"]
-            total_mel_len = row["total_mel_len"]
-            language_id = row["language_id"]
-            rel_path = row["rel_path"]
-            if self.root_dir and not os.path.isabs(rel_path):
-                audio_path = os.path.join(self.root_dir, rel_path)
-            # filter by given length
-            if 0.1 <= duration <= 50:
-                break  # valid
+    mel_specs = torch.stack(padded_mel_specs)
 
-            index = (index + 1) % len(self.data)
+    text = [item["text"] for item in batch]
+    text_lengths = torch.LongTensor([len(item) for item in text])
+    language_ids = [item["language_id"] for item in batch]
 
-        if self.preprocessed_mel:
-            mel_spec = torch.tensor(row["mel_spec"])
-        else:
-            audio, source_sample_rate = torchaudio.load(audio_path)
+    return dict(
+        mel=mel_specs,
+        mel_lengths=mel_lengths,  # records for padding mask
+        text=text,
+        text_lengths=text_lengths,
+        language_ids=language_ids,
+    )
 
-            # make sure mono input
-            if audio.shape[0] > 1:
-                audio = torch.mean(audio, dim=0, keepdim=True)
-
-            # resample if necessary
-            if source_sample_rate != self.target_sample_rate:
-                resampler = torchaudio.transforms.Resample(source_sample_rate, self.target_sample_rate)
-                audio = resampler(audio)
-
-            # to mel spectrogram
-            mel_spec = self.mel_spectrogram(audio)
-            mel_spec = mel_spec.squeeze(0)  # '1 d t -> d t'
-
-        return {
-            "mel_spec": mel_spec,
-            "rel_path": rel_path,
-            "ref_text": ref_text,
-            "gen_text": gen_text,
-            "ref_text_ipa": ref_text_ipa,
-            "gen_text_ipa": gen_text_ipa,
-            "total_mel_len": total_mel_len,
-            "language_id": language_id,
-        }
 
 def collate_fn_gp_inference(batch):
     mel_specs = [item["mel_spec"].squeeze(0) for item in batch]
@@ -727,4 +667,46 @@ def collate_fn_gp_inference(batch):
         total_mel_len=total_mel_len,
         language_ids=language_id,
         rel_paths=rel_paths,
+    )
+
+def collate_fn_sft(batch):
+    mel_specs = []
+    prompt_mel_lengths = []
+
+    for item in batch:
+        prompt = item['prompt_mel']  # Shape: (N, T_prompt)
+        target = item['mel_spec']    # Shape: (N, T_target)
+        
+        combined_mel = torch.cat([prompt, target], dim=1) # Shape: (N, T_total)
+        mel_specs.append(combined_mel)
+        
+        prompt_mel_lengths.append(prompt.shape[1]) 
+
+    mel_lengths = torch.LongTensor([spec.shape[-1] for spec in mel_specs])
+    prompt_mel_lengths = torch.LongTensor(prompt_mel_lengths)
+    max_mel_length = mel_lengths.amax()
+
+    padded_mel_specs = []
+    for spec in mel_specs:
+        padding = (0, max_mel_length - spec.size(-1))
+        padded_spec = F.pad(spec, padding, value=0)
+        padded_mel_specs.append(padded_spec)
+
+    mel_specs = torch.stack(padded_mel_specs)
+
+    text = [item["text"] for item in batch]
+    text_lengths = torch.LongTensor([len(item) for item in text])
+    total_text = [item["total_text"] for item in batch]
+    total_text_lengths = torch.LongTensor([len(item) for item in total_text])
+    language_ids = [item["language_id"] for item in batch]
+
+    return dict(
+        mel=mel_specs,
+        mel_lengths=mel_lengths,  # records for padding mask
+        text=text,
+        text_lengths=text_lengths,
+        total_text=total_text,
+        total_text_lengths=total_text_lengths,
+        prompt_mel_lengths=prompt_mel_lengths,
+        language_ids=language_ids,
     )

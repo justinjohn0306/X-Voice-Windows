@@ -10,10 +10,10 @@ from x_voice.model import CFM_SFT, Trainer_SFT
 from x_voice.model.dataset import load_dataset
 from x_voice.model.utils import get_tokenizer
 
-# import debugpy
-# debugpy.listen(('localhost', 5678))
-# print("Waiting for debugger attach")
-# debugpy.wait_for_client()
+import debugpy
+debugpy.listen(('localhost', 5638))
+print("Waiting for debugger attach")
+debugpy.wait_for_client()
 
 os.chdir(str(files("x_voice").joinpath("../..")))  # change working directory to root of project (local editable)
 
@@ -55,7 +55,7 @@ def main(model_cfg):
         cond_drop_prob=cond_drop_prob,
         use_total_text=use_total_text,
     )
-    print(f"Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
+    # print(f"Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
     pretrained_path = model_cfg.ckpts.get("pretrained_path", None)
     if pretrained_path is None:
         raise ValueError("pretrained_path is required in SFT mode.")
@@ -92,7 +92,7 @@ def main(model_cfg):
         use_total_text=use_total_text,
     )
 
-    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, sft=sft, mel_spec_kwargs=model_cfg.model.mel_spec,frame_duration=frame_duration)
+    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, sft=sft, mel_spec_kwargs=model_cfg.model.mel_spec, root_dir=model_cfg.datasets.root_dir)
     trainer.train(
         train_dataset,
         num_workers=model_cfg.datasets.num_workers,

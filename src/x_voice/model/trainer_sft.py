@@ -72,14 +72,6 @@ class Trainer_SFT:
             gradient_accumulation_steps=grad_accumulation_steps,
             **accelerate_kwargs,
         )
-        print(
-            f"Checking Accelerator setup... | "
-            f"PID: {os.getpid()} | "
-            f"Local Rank: {self.accelerator.local_process_index} | "
-            f"Global Rank: {self.accelerator.process_index} | "
-            f"World Size: {self.accelerator.num_processes} | "
-            f"Is in main process: {self.accelerator.is_main_process}"
-        )
 
         self.logger = logger
         if self.logger == "wandb":
@@ -112,7 +104,6 @@ class Trainer_SFT:
 
             self.writer = SummaryWriter(log_dir=f"runs/{wandb_run_name}")
 
-        # 创建两个模型，EMA是指数移动平均模型，权重会更新为原始模型权重的滑动平均
         self.model = model
 
         if self.is_main:
@@ -120,10 +111,6 @@ class Trainer_SFT:
             self.ema_model.to(self.accelerator.device)
 
             print(f"Using logger: {logger}")
-            if grad_accumulation_steps > 1:
-                print(
-                    "Gradient accumulation checkpointing with per_updates now, old logic per_steps used with before f992c4e"
-                )
 
         self.epochs = epochs
         self.num_warmup_updates = num_warmup_updates
@@ -152,7 +139,6 @@ class Trainer_SFT:
 
             self.optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=learning_rate)
         else:
-            print("set AdamW fused to True")
             self.optimizer = AdamW(model.parameters(), lr=learning_rate, fused=True)
         self.model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
         
@@ -330,7 +316,7 @@ class Trainer_SFT:
             target_sample_rate = self.accelerator.unwrap_model(self.model).mel_spec.target_sample_rate
             log_samples_path = f"{self.checkpoint_path}/samples"
             os.makedirs(log_samples_path, exist_ok=True)
-            print(f"Choose to sample audios. audio samples will be saved to {log_samples_path}")
+            # print(f"Choose to sample audios. audio samples will be saved to {log_samples_path}")
 
         if exists(resumable_with_seed):
             generator = torch.Generator()
@@ -446,10 +432,6 @@ class Trainer_SFT:
                     mel_lengths = batch["mel_lengths"]
                     current_ids = language_ids = batch["language_ids"]
                     prompt_mel_lengths = batch["prompt_mel_lengths"]
-                    #print(mel_spec.shape,mel_lengths,current_ids)
-                    # if random.random()<0.1:
-                    #     print(language_ids)
-                    #print(f"text_inputs:{text_inputs}")
 
                     # TODO. add duration predictor training
                     if self.duration_predictor is not None and self.accelerator.is_local_main_process:
