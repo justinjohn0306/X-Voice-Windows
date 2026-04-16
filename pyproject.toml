@@ -95,7 +95,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["x_voice*", "srp*", "MAVL*"]
+include = ["x_voice*", "srp*"]
 namespaces = true
 
 [tool.setuptools.package-data]
@@ -109,11 +109,4 @@ x_voice = [
 ]
 srp = [
     "configs/*.yaml",
-]
-"MAVL.ipa_converter" = [
-    "valid_mappings.csv",
-]
-"MAVL.process_syllable.syllabifier" = [
-    "CMU_dictionary/*",
-    "test_cases.csv",
 ]
