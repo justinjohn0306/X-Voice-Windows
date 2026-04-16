@@ -1,10 +1,9 @@
 datasets:
-  name: multilingual_sft_en_id_vi # Emilia_ZH_EN  # dataset name
-  batch_size_per_gpu: 57600  # 8 GPUs, 8 * 38400 = 307200
+  name: multilingual_xrx_test_gendata # Emilia_ZH_EN  # dataset name
+  batch_size_per_gpu: 57600
   batch_size_type: frame  # frame | sample
   max_samples: 64  # max sequences per batch if use frame-wise batch_size. we set 32 for small models, 64 for base models
   num_workers: 16
-  root_dir: /inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/wavs/ # Root directory for source audio.
 
 source:
   expname: F5TTS_v1_Base_multilingual_full_catada_stress_nomask
@@ -16,3 +15,5 @@ infer:
   sway_sampling_coef: -1.0
   gen_root: null # Output root for generated results; null disables saving.
   save_wav: False # Whether to save generated wav files.
+
+# accelerate launch src/x_voice/train/inference_gp.py --config-name F5TTS_v1_Base_multilingual_xrx_test_gendata.yaml

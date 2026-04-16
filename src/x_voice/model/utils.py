@@ -266,7 +266,7 @@ def list_list_to_idx(
 # Get tokenizer
 
 
-def get_tokenizer(dataset_name, tokenizer):
+def get_tokenizer(dataset_name, tokenizer, sft: bool = False):
     """
     tokenizer   - "pinyin" do g2p for only chinese characters, need .txt vocab_file
                 - "char" for char-wise tokenizer, need .txt vocab_file
@@ -277,7 +277,10 @@ def get_tokenizer(dataset_name, tokenizer):
                 - if use "byte", set to 256 (unicode byte range)
     """
     if tokenizer in ["pinyin", "char"] or tokenizer.startswith("ipa"):
-        tokenizer_path = os.path.join(files("x_voice").joinpath("../../data"), f"{dataset_name}_{tokenizer}/vocab.txt")
+        if not sft:
+            tokenizer_path = os.path.join(files("x_voice").joinpath("../../data"), f"{dataset_name}_{tokenizer}/vocab.txt")
+        else:
+            tokenizer_path = os.path.join(files("x_voice").joinpath("../../data"), f"{dataset_name}_{tokenizer}_sft/vocab.txt")
         with open(tokenizer_path, "r", encoding="utf-8") as f:
             vocab_char_map = {}
             for i, char in enumerate(f):

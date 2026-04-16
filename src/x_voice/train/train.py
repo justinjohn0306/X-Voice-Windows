@@ -80,7 +80,7 @@ def main(model_cfg):
         continue_training=continue_training,
     )
 
-    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, mel_spec_kwargs=model_cfg.model.mel_spec, root_dir=model_cfg.datasets.root_dir)
+    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, mel_spec_kwargs=model_cfg.model.mel_spec, root_dir=model_cfg.datasets.get("root_dir",None))
     trainer.train(
         train_dataset,
         num_workers=model_cfg.datasets.num_workers,

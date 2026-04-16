@@ -134,13 +134,11 @@ class CustomDataset(Dataset):
             audio_path = row["audio_path"]
             text = row["text"]
             duration = row["duration"]
-            language_id = row.get("language_id", "en") 
+            language_id = row.get("language_id", "en")
             if self.root_dir and not os.path.isabs(audio_path):
                 audio_path = os.path.join(self.root_dir, audio_path)
-            if 0.3 <= duration <= 30 and "EN_B00055_S00943_W000008" not in audio_path:
+            if 0.3 <= duration <= 30:
                 break
-            elif "EN_B00055_S00943_W000008" in audio_path:
-                print(f"{audio_path} is invalid, skipping.")
             
             index = (index + 1) % len(self.data)
         
@@ -227,8 +225,9 @@ class CustomDataset_gp(Dataset):
             total_mel_len = row["total_mel_len"]
             language_id = row["language_id"]
             rel_path = row["rel_path"]
-            if self.root_dir and not os.path.isabs(rel_path):
-                audio_path = os.path.join(self.root_dir, rel_path)
+            audio_path = row["audio_path"]
+            if self.root_dir and not os.path.isabs(audio_path):
+                audio_path = os.path.join(self.root_dir, audio_path)
             # filter by given length
             if 0.1 <= duration <= 50:
                 break  # valid
@@ -339,10 +338,8 @@ class CustomDataset_sft(Dataset):
                 audio_path = os.path.join(self.root_dir, audio_path)
             if self.root_dir and not os.path.isabs(prompt_path):
                 prompt_path = os.path.join(self.root_dir, prompt_path)
-            if 0.3 <= duration <= 30 and "EN_B00055_S00943_W000008" not in audio_path and total_frames <= 8192:
+            if 0.3 <= duration <= 30  and total_frames <= 8192:
                 break
-            elif "EN_B00055_S00943_W000008" in audio_path:
-                print(f"{audio_path} is invalid, skipping.")
             
             index = (index + 1) % len(self.data)
 

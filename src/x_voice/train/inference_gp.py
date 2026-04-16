@@ -10,11 +10,6 @@ from x_voice.model.dataset import load_dataset_gp
 from x_voice.model.utils import get_tokenizer
 from x_voice.model.inferencer_gp import Inferencer_gp
 
-# import debugpy
-# debugpy.listen(('localhost', 771))
-# print("Waiting for debugger attach")
-# debugpy.wait_for_client()
-
 PROJECT_ROOT = Path(str(files("x_voice").joinpath("../.."))).resolve()
 
 os.chdir(str(PROJECT_ROOT))  # change working directory to root of project (local editable)
@@ -84,7 +79,7 @@ def main(inference_cfg):
         save_wav=inference_cfg.infer.save_wav,
     )
 
-    inference_dataset = load_dataset_gp(inference_cfg.datasets.name, root_dir=inference_cfg.datasets.root_dir, tokenizer=tokenizer, mel_spec_kwargs=cfg.model.mel_spec)
+    inference_dataset = load_dataset_gp(inference_cfg.datasets.name, root_dir=inference_cfg.datasets.get("root_dir", None), tokenizer=tokenizer, mel_spec_kwargs=cfg.model.mel_spec)
     inferencer.inference(
         inference_dataset,
         num_workers=inference_cfg.datasets.num_workers,
@@ -95,4 +90,4 @@ def main(inference_cfg):
 if __name__ == "__main__":
     main()
     
-# accelerate launch src/x_voice/train/inference_gp.py --config-name F5TTS_v1_Base_multilingual_full_catada_stress_qyl_test_infer.yaml
+

@@ -4,12 +4,12 @@ hydra:
     dir: ckpts/${model.name}_${model.mel_spec.mel_spec_type}_${model.tokenizer}_${datasets.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 datasets:
-  name: multilingual_phase2
+  name: multilingual_xrx_test_gendata
   batch_size_per_gpu: 38400  # 8 GPUs, 8 * 38400 = 307200
   batch_size_type: frame  # frame | sample
   max_samples: 32  # max sequences per batch if use frame-wise batch_size. we set 32 for small models, 64 for base models
   num_workers: 16
-  root_dir: /inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/wavs
+  # root_dir: /inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/wavs
 
 optim:
   epochs: 5
@@ -20,7 +20,7 @@ optim:
   bnb_optimizer: False  # use bnb 8bit AdamW optimizer or not
 
 model:
-  name: F5TTS_v1_Base_multilingual_full_catada_sft_v2  # model name
+  name: F5TTS_v1_Base_xrx_test_stage2  # model name
   tokenizer: ipa_v6  # tokenizer type
   tokenizer_path: null  # if 'custom' tokenizer, define the path want to use (should be vocab.txt)
   backbone: DiT
@@ -76,4 +76,4 @@ attn:
   attn_backend: flash_attn # flash_attn | torch
   attn_mask_enabled: True # True | False
 
-# accelerate launch src/x_voice/train/train_sft.py  --config-name F5TTS_v1_Base_multilingual_full_catada_sft_v2.yaml
+# accelerate launch src/x_voice/train/train_sft.py  --config-name F5TTS_v1_Base_multilingual_xrx_test_stage2.yaml

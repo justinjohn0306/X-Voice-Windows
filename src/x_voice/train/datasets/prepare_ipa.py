@@ -7,7 +7,7 @@ import multiprocessing
 import re
 import regex
 from pathlib import Path
-from typing import List, Union, Pattern
+from typing import List, Union, Pattern, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import random
 import logging
@@ -33,8 +33,6 @@ def get_tokenizer(lang_code, tokenizer):
         try:
             if tokenizer == "ipa_v3":
                 TOKENIZERS[espeak_code] = PhonemizeTextTokenizer_v3(language=espeak_code)
-            elif tokenizer == "ipa_v5":
-                TOKENIZERS[espeak_code] = PhonemizeTextTokenizer_v5(language=espeak_code)
             elif tokenizer == "ipa_v6":
                 TOKENIZERS[espeak_code] = PhonemizeTextTokenizer_v6(language=espeak_code, with_stress=True)
         except RuntimeError as e:
@@ -44,7 +42,7 @@ def get_tokenizer(lang_code, tokenizer):
 
 
 
-def process_batch(batch_data, lang_code, tokenizer_str):
+def process_batch(batch_data, lang_code, tokenizer_str, wav_base):
     """
     batch_data: list[(audio_path, text, duration)]
     """
@@ -56,7 +54,6 @@ def process_batch(batch_data, lang_code, tokenizer_str):
     
     try:
         ipa_texts = [tokenizer([text.strip()]) for text in texts]
-        # print(ipa_texts)
     except Exception as e:
         print(f"IPA conversion failed for batch in {lang_code}: {e}")
         return []
@@ -66,7 +63,7 @@ def process_batch(batch_data, lang_code, tokenizer_str):
         if not ipa_text.strip():
             continue
         results.append({
-            "audio_path": audio_path,
+            "audio_path": str(wav_base / audio_path),
             "text": ipa_text,     
             "duration": duration,
             "language_id": lang_code
@@ -77,9 +74,9 @@ def read_all_metadata(input_dir):
     """
     Scan all metadata_*.csv files under the input directory.
     """
-    input_path = Path(input_dir)/'csv_stage1_debug'
+    input_path = Path(input_dir)/'csvs'
     # Match files such as metadata_zh.csv and metadata_en.csv.
-    all_files = list(input_path.glob("metadata_*_test.csv"))
+    all_files = list(input_path.glob("metadata_*.csv"))
     csv_files = []
     for f in all_files:
         csv_files.append(f)
@@ -94,24 +91,41 @@ def read_all_metadata(input_dir):
     for csv_file in csv_files:
         # Extract the language code from the file name, e.g. metadata_zh.csv -> zh.
         lang_code = csv_file.stem.split('_')[1]
-        if True: #lang_code in ["en"]:
+        if True:
             print(f"lang_code:{lang_code}")
             all_tasks.append((lang_code, csv_file))
         
     return all_tasks
 
+def preload_wav_paths(wav_root: Union[str, Path]) -> Set[str]:
+    existing_wavs = set()
+    print(f"\nPreloading wav path in {wav_root}")
+    
+    for wav_path in tqdm(wav_root.rglob("*"), desc="scanning audio files"):
+        existing_wavs.add(str(wav_path.absolute()))
+    return existing_wavs
 
-def read_csv_file(csv_path, target_duration=None):
+
+def read_csv_file(csv_path, target_duration=None, dnsmos=None, audio_set=None, wav_base=None):
     items = []
     all_duration = 0
     # Step 1: collect all valid rows with durations into a temporary list.
     temp_valid_lines = []
-    
     with open(csv_path, 'r', encoding='utf-8') as f:
         header = f.readline().strip()  # Skip the header row.
         for line in f:
             parts = line.strip().split('|')
-            if len(parts) == 3:  # Valid path|duration|text row.
+            audio_dir = wav_base / parts[0]
+            abs_path = str(audio_dir.absolute())
+            if audio_set is not None and abs_path not in audio_set:
+                continue
+            if len(parts) == 4:
+                mos = float(parts[2])
+                if dnsmos is not None and mos < dnsmos:
+                    continue
+                else: 
+                    temp_valid_lines.append((parts[0], parts[3], float(parts[1])))
+            elif len(parts) == 3:  # Valid path|duration|text row.
                 # Store the raw path, text, and duration first.
                 temp_valid_lines.append((parts[0], parts[2], float(parts[1])))
             elif len(parts) == 2:  # Row without a duration value.
@@ -131,7 +145,7 @@ def read_csv_file(csv_path, target_duration=None):
     
     return items, all_duration/3600
 
-def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, duration_map=None):
+def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, duration_map=None, dnsmos=None, check_exists=False):
     inp_dir = Path(inp_dir)
     out_dir_root = Path(out_dir_root)
     out_dir = out_dir_root / f"{dataset_name}_{tokenizer}"
@@ -155,8 +169,14 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, 
                 lang_duration = duration_map.get(lang_code, None)
                 if lang_duration is None:
                     lang_duration = duration_map.get("default", None)
-                print(f"Will choose {lang_duration} hours for {lang_code}")
-            raw_items, return_duration = read_csv_file(csv_path, lang_duration)
+                print(f"Will try to choose {lang_duration} hours for {lang_code}")
+            
+            audio_set = None
+            wav_base = inp_dir / "wavs"
+            if check_exists:
+                wav_dir = wav_base / lang_code
+                audio_set = preload_wav_paths(wav_dir)
+            raw_items, return_duration = read_csv_file(csv_path, lang_duration, dnsmos, audio_set, wav_base)
             if not raw_items:
                 continue
             fixed_items = []
@@ -169,7 +189,7 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, 
             batch_size = 1000 # Each worker processes 1000 rows at a time.
             batches = [fixed_items[i:i + batch_size] for i in range(0, len(fixed_items), batch_size)]
             
-            futures = [executor.submit(process_batch, batch, lang_code, tokenizer) for batch in batches]
+            futures = [executor.submit(process_batch, batch, lang_code, tokenizer, wav_base) for batch in batches]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"  -> {lang_code}"):
                 batch_results = future.result()
                 
@@ -181,8 +201,6 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, 
                     # Update vocabulary statistics.
                     if tokenizer == "ipa_v3":
                         tokens = str_to_list_ipa_v3(res['text']) 
-                    elif tokenizer == "ipa_v5":
-                        tokens = str_to_list_ipa_v5(res['text'])
                     elif tokenizer == "ipa_v6":
                         tokens = str_to_list_ipa_v6(res['text'])
                     if random.random() <0.000001:
@@ -232,21 +250,23 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, 
 
 def main():
     parser = argparse.ArgumentParser()
-    support_tokenizer = ["ipa_v3","ipa_v5", "ipa_v6"]
-    parser.add_argument("--inp_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/qingyuliu/datasets",help="Root dir containing metadata_*.csv and wavs/")
-    parser.add_argument("--out_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/qingyuliu/github/XVtest/data",help="Output root dir for raw.arrow")
+    support_tokenizer = ["ipa_v3", "ipa_v6"]
+    parser.add_argument("--inp_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/x-voice",help="Root dir containing metadata_*.csv and wavs/")
+    parser.add_argument("--out_dir", type=str, default="./data",help="Output root dir for raw.arrow")
     parser.add_argument("--workers", type=int, default=16, help="Number of CPU workers")
     parser.add_argument("--tokenizer",type=str, choices=support_tokenizer, default="ipa_v6")
     parser.add_argument("--dataset_name",type=str, default="multilingual_qyl_test")
+    parser.add_argument("--dnsmos", type=float, default=None, help="min value of dnsmos")
+    parser.add_argument("--check_exists", action="store_true", help="Whether to check if the audio file exists before processing.")
     
     
     args = parser.parse_args()
     duration_map=None
     
-    prepare_all(args.inp_dir, args.out_dir, args.tokenizer, args.dataset_name, args.workers, duration_map)
+    prepare_all(args.inp_dir, args.out_dir, args.tokenizer, args.dataset_name, args.workers, duration_map, args.dnsmos, args.check_exists)
 
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
     main()
     
-# python src/x_voice/train/datasets/prepare_ipa.py --tokenizer ipa_v6 --dataset_name multilingual_stress_ko
+# python src/x_voice/train/datasets/prepare_ipa.py --tokenizer ipa_v6 --dataset_name multilingual_xrx_test2_phase1 --dnsmos 2.0 --check_exists

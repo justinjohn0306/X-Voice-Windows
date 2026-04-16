@@ -192,12 +192,15 @@ class Trainer:
              if any(filename.endswith((".pt", ".safetensors")) for filename in os.listdir(self.checkpoint_path)):
                 has_checkpoint = True
         if not has_checkpoint:
-            if self.pretrained_path and os.path.exists(self.pretrained_path):
+            if self.pretrained_path:
+                if not os.path.exists(self.pretrained_path):
+                    print(f"The pretrained checkpoint provided does not exist: {self.pretrained_path}")
+                    return 0
                 if self.is_main:
                     if self.continue_training:
-                        print(f"\n[Continue Training] No local checkpoint found. Loading from: {self.pretrained_path}")
+                        print(f"\n[Continue Training] Will contine to train the model on a new dataset. Pretrained model path: {self.pretrained_path}")
                     else:
-                        print(f"\n[Transfer Learning] No local checkpoint found. Loading from: {self.pretrained_path}")
+                        print(f"\nWill load original F5-TTS checkpoint and transfer it to multilingual. Pretrained model path: {self.pretrained_path}")
                 if self.pretrained_path.endswith(".safetensors"):
                     from safetensors.torch import load_file
                     checkpoint = load_file(self.pretrained_path, device="cpu")

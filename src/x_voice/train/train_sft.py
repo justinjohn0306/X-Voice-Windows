@@ -38,7 +38,7 @@ def main(model_cfg):
         tokenizer_path = model_cfg.datasets.name
     else:
         tokenizer_path = model_cfg.model.tokenizer_path
-    vocab_char_map, vocab_size = get_tokenizer(tokenizer_path, tokenizer)
+    vocab_char_map, vocab_size = get_tokenizer(tokenizer_path, tokenizer, sft=True)
 
     # set model
     model = CFM_SFT(
@@ -88,7 +88,7 @@ def main(model_cfg):
         use_total_text=use_total_text,
     )
 
-    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, sft=sft, mel_spec_kwargs=model_cfg.model.mel_spec, root_dir=model_cfg.datasets.root_dir)
+    train_dataset = load_dataset(model_cfg.datasets.name, tokenizer, sft=sft, mel_spec_kwargs=model_cfg.model.mel_spec, root_dir=model_cfg.datasets.get("root_dir", None))
     trainer.train(
         train_dataset,
         num_workers=model_cfg.datasets.num_workers,
