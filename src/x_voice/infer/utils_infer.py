@@ -691,3 +691,148 @@ def save_spectrogram(spectrogram, path):
     plt.colorbar()
     plt.savefig(path)
     plt.close()
+
+
+_LOUDNESS_NORMALIZER = {
+    "initialized": False,
+    "available": False,
+    "pyln": None,
+    "np": None,
+    "meters": {},
+}
+
+def _init_loudness_normalizer() -> bool:
+    if _LOUDNESS_NORMALIZER["initialized"]:
+        return _LOUDNESS_NORMALIZER["available"]
+
+    _LOUDNESS_NORMALIZER["initialized"] = True
+    try:
+        import numpy as np
+        import pyloudnorm as pyln
+
+        _LOUDNESS_NORMALIZER.update(
+            {
+                "available": True,
+                "pyln": pyln,
+                "np": np,
+            }
+        )
+        print("[INFO] Loudness normalizer loaded.")
+    except Exception as e:
+        print(f"[WARN] pyloudnorm unavailable, fallback to torchaudio loudness. Detail: {e}")
+
+    return _LOUDNESS_NORMALIZER["available"]
+
+
+def normalize_audio_loudness(
+    audio: torch.Tensor,
+    sample_rate: int,
+    target_lufs: float = -23.0,
+):
+    audio = audio.to(torch.float32)
+    if _init_loudness_normalizer():
+        np = _LOUDNESS_NORMALIZER["np"]
+        pyln = _LOUDNESS_NORMALIZER["pyln"]
+        meter = _LOUDNESS_NORMALIZER["meters"].get(sample_rate)
+        if meter is None:
+            meter = pyln.Meter(sample_rate)
+            _LOUDNESS_NORMALIZER["meters"][sample_rate] = meter
+
+        try:
+            wav_np = audio.detach().cpu().transpose(0, 1).numpy()
+            if wav_np.ndim == 1:
+                wav_np = wav_np.reshape(-1, 1)
+            current_loudness = meter.integrated_loudness(wav_np)
+            if np.isfinite(current_loudness):
+                normalized_np = pyln.normalize.loudness(wav_np, current_loudness, target_lufs)
+                max_val = float(np.abs(normalized_np).max()) if normalized_np.size > 0 else 0.0
+                if max_val >= 1.0:
+                    print(f"[WARN] peak exceed 1.0.")
+                    normalized_np = normalized_np / max_val * 0.99
+                audio = torch.from_numpy(normalized_np).transpose(0, 1).to(torch.float32)
+        except Exception as e:
+            print(f"[WARN] pyloudnorm normalization failed, fallback to torchaudio loudness. Detail: {e}")
+    return audio
+
+_REF_WAV_DENOISER = {
+    "initialized": False,
+    "available": False,
+    "model": None,
+    "state": None,
+    "enhance": None,
+    "sample_rate": None,
+}
+
+
+def _init_ref_wav_denoiser() -> bool:
+    if _REF_WAV_DENOISER["initialized"]:
+        return _REF_WAV_DENOISER["available"]
+
+    _REF_WAV_DENOISER["initialized"] = True
+    try:
+        # DeepFilterNet2 is a strong speech denoiser and supports real-world noise.
+        from df.enhance import enhance, init_df
+
+        model, state, _ = init_df()
+        _REF_WAV_DENOISER.update(
+            {
+                "available": True,
+                "model": model,
+                "state": state,
+                "enhance": enhance,
+                "sample_rate": state.sr(),
+            }
+        )
+        print(f"[INFO] Ref wav denoiser loaded (DeepFilterNet2 @ {_REF_WAV_DENOISER['sample_rate']} Hz).")
+    except Exception as e:
+        print(f"[WARN] Ref wav denoiser unavailable, skip denoise. Install deepfilternet to enable it. Detail: {e}")
+
+    return _REF_WAV_DENOISER["available"]
+
+
+def denoise_ref_audio(
+    ref_audio: torch.Tensor,
+    ref_sr: int,
+):
+    if not _init_ref_wav_denoiser():
+        return ref_audio, ref_sr
+
+    try:
+        denoise_sr = _REF_WAV_DENOISER["sample_rate"]
+        # Denoise in mono for stability, then expand back to original channel count.
+        mono_audio = ref_audio.mean(dim=0, keepdim=True).to(torch.float32).cpu()
+        if ref_sr != denoise_sr:
+            mono_audio = torchaudio.functional.resample(mono_audio, ref_sr, denoise_sr)
+
+        enhanced = _REF_WAV_DENOISER["enhance"](
+            _REF_WAV_DENOISER["model"], _REF_WAV_DENOISER["state"], mono_audio
+        )
+        if enhanced.dim() == 1:
+            enhanced = enhanced.unsqueeze(0)
+        elif enhanced.dim() > 2:
+            enhanced = enhanced.reshape(1, -1)
+        enhanced = torch.clamp(enhanced, -1.0, 1.0)
+
+        if ref_sr != denoise_sr:
+            enhanced = torchaudio.functional.resample(enhanced, denoise_sr, ref_sr)
+
+        if enhanced.shape[0] != 1:
+            enhanced = enhanced.mean(dim=0, keepdim=True)
+        enhanced = enhanced.repeat(ref_audio.shape[0], 1)
+        return enhanced.to(dtype=ref_audio.dtype), ref_sr
+    except Exception as e:
+        print(f"[WARN] Failed to denoise ref wav, use original waveform. Detail: {e}")
+        return ref_audio, ref_sr
+    
+def audio_post_processing(mel, threshold=2.8, limit=3.5, start_bin=60):
+    mel_high = mel[:, :, start_bin:]
+    def apply_limit(x, t, m):
+        # 只有超过threshold的部分才进入tanh
+        margin = m - t
+        return torch.where(
+            x < t,
+            x,
+            t + margin * torch.tanh((x - t) / margin)
+        )
+    mel[:, :, start_bin:] = apply_limit(mel_high, threshold, limit)
+    return mel

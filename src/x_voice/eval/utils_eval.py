@@ -1,5 +1,6 @@
 import math
 import os
+import sys
 import random
 import string
 from pathlib import Path
@@ -15,13 +16,16 @@ from x_voice.eval.ecapa_tdnn import ECAPA_TDNN_SMALL
 from x_voice.model.modules import MelSpec
 from x_voice.model.utils import convert_char_to_pinyin, str_to_list_ipa_all
 from x_voice.eval.text_normalizer import TextNormalizer
+from x_voice.infer.utils_infer import denoise_ref_audio
 import pickle
 import pyphen
 import unicodedata
 from pythainlp.tokenize import syllable_tokenize
 from MAVL.process_syllable.japanese import split_syllables as ja_split_syllables
+from finnsyll import FinnSyll
+import pyloudnorm as pyln
 
-def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=False):
+def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=False, use_truth_duration=False):
     """
     data_dir goes to: cv3_eval/zero_shot/[in_language] 
     metainfo: List[Tuple(utt_id, prompt_wav_path, prompt_text, target_text)]
@@ -78,12 +82,17 @@ def get_testset_metainfo(data_dir, in_language, ref_language=None, drop_text=Fal
             prompt_text = utt2prompt.get(utt_id, None) 
             wav_path_clean = wav_path.replace("data/", "", 1)  
             full_wav_path = os.path.join(root_dir, wav_path_clean)
-            metainfo.append((utt_id, prompt_text, full_wav_path, target_text))
+            if use_truth_duration:
+                cur_id = utt_id.split("_")[-1]
+                gt_wav = os.path.join(data_dir, f"ground_truth/gt_{cur_id}.wav")  
+                metainfo.append((utt_id, prompt_text, full_wav_path, target_text, gt_wav))
+            else:
+                metainfo.append((utt_id, prompt_text, full_wav_path, target_text))
             
     return metainfo
 
 # seedtts testset metainfo: utt, prompt_text, prompt_wav, gt_text, gt_wav
-def get_seedtts_testset_metainfo(metalst):
+def get_seedtts_testset_metainfo(metalst, drop_text=False):
     f = open(metalst)
     lines = f.readlines()
     f.close()
@@ -96,6 +105,8 @@ def get_seedtts_testset_metainfo(metalst):
             gt_wav = os.path.join(os.path.dirname(metalst), "wavs", utt + ".wav")
         if not os.path.isabs(prompt_wav):
             prompt_wav = os.path.join(os.path.dirname(metalst), prompt_wav)
+        if drop_text:
+            prompt_text = None
         metainfo.append((utt, prompt_text, prompt_wav, gt_text, gt_wav))
     return metainfo
 
@@ -135,6 +146,7 @@ def padded_mel_batch(ref_mels):
 
 
 # get prompts from metainfo containing: utt, prompt_text, prompt_wav, gt_text, gt_wav
+# copied from SpeakingRatePredictor/src/model/utils.py
 PYPHEN_LANG_MAP = {
     "bg": "bg_BG",
     "cs": "cs_CZ",
@@ -154,6 +166,7 @@ PYPHEN_LANG_MAP = {
     "lv": "lv_LV",
     "mt": "it_IT",  # pyphen has no Maltese package, so Italian is used as a fallback.
     "nl": "nl_NL",
+    "nl": "nl_NL",
     "pl": "pl_PL",
     "pt": "pt_PT",
     "ro": "ro_RO",
@@ -170,7 +183,7 @@ def extract_pyphen_text(text: str) -> str:
     tokens = re.findall(r"[^\W\d_]+(?:['’][^\W\d_]+)*", text, flags=re.UNICODE)
     return " ".join(tokens)
 
-def count_syllables_pure(text: str, lang: str) -> int:
+def count_syllables(text: str, lang: str) -> int:
     if not text:
         return 0
 
@@ -228,16 +241,16 @@ def count_syllables_pure(text: str, lang: str) -> int:
                 total += len(dic.inserted(word).split("-"))
     return total
 
-PUNCT_CHARS = set(',.?!;:。，、！？；：')
-def count_punctuations(text):
-    punct_syllables = 0
-    for char in text:
-        if char in PUNCT_CHARS:
-            punct_syllables += 1
-    return punct_syllables
+def count_syllables_(text: str, lang: str) -> int:
+    def count_punctuations(text):
+        punct_chars = set(',.?!;:。，、！？；：')
+        punct_syllables = 0
+        for char in text:
+            if char in punct_chars:
+                punct_syllables += 1
+        return punct_syllables
+    return count_syllables(text, lang) + count_punctuations(text)
 
-def count_syllables(text: str, lang: str) -> int:
-    return count_syllables_pure(text, lang) + count_punctuations(text)
 
 def get_inference_prompt(
     metainfo,
@@ -266,6 +279,8 @@ def get_inference_prompt(
     device=None,
     ref_language=None,
     ref_ipa_tokenizer=None,
+    denoise_ref_wav=False,
+    loudness_norm=False,
 ):
     prompts_all = []
 
@@ -300,6 +315,8 @@ def get_inference_prompt(
         # Audio
         try:
             ref_audio, ref_sr = torchaudio.load(prompt_wav)
+            if denoise_ref_wav:
+                ref_audio, ref_sr = denoise_ref_audio(ref_audio, ref_sr)
             
             ref_rms = torch.sqrt(torch.mean(torch.square(ref_audio)))
             if ref_rms < target_rms:
@@ -355,7 +372,7 @@ def get_inference_prompt(
             elif len(gen_text_tokenized[-1].encode("utf-8")) == 1 and reverse:
                 gen_text_tokenized.append(" ")
             if random.random()<0.001:
-                print(f"==========\n{ref_text_tokenized}\n{gen_text_tokenized}\n============")
+                print(f"==========\nprompt text tokenized: {ref_text_tokenized}\ntarget text tokenized:{gen_text_tokenized}\n==========")
             
             curr_ref_len = len(ref_text_tokenized) if not drop_text else 0
             curr_gen_len = len(gen_text_tokenized)
@@ -380,14 +397,14 @@ def get_inference_prompt(
                 if gt_sr != target_sample_rate:
                     resampler = torchaudio.transforms.Resample(gt_sr, target_sample_rate)
                     gt_audio = resampler(gt_audio)
-                total_mel_len = ref_mel_len + int(gt_audio.shape[-1] / hop_length / speed)
-
+                total_mel_len = ref_mel_len + mel_spectrogram(gt_audio).shape[-1]
+                
                 # # test vocoder resynthesis
                 # ref_audio = gt_audio
             else:
                 if sp_type == "pretrained":
                     assert model_sp is not None
-                    gt_num_unit = count_syllables(gt_text, language)
+                    gt_num_unit = count_syllables_(gt_text, language)
                     ref_mel_t = ref_mel.unsqueeze(0).permute(0, 2, 1)
                     ref_mel_tensor = ref_mel_t.to(device)
                     ref_mel_len_tensor = torch.tensor([ref_mel_len], dtype=torch.long).to(device)
@@ -402,10 +419,10 @@ def get_inference_prompt(
                     
                 elif sp_type == "syllable":
                     if ref_language:
-                        ref_syllables = count_syllables(prompt_text, ref_language)
+                        ref_syllables = count_syllables_(prompt_text, ref_language)
                     else:
-                        ref_syllables = count_syllables(prompt_text, language)
-                    gen_syllables = count_syllables(gt_text, language)
+                        ref_syllables = count_syllables_(prompt_text, language)
+                    gen_syllables = count_syllables_(gt_text, language)
                     if ref_syllables == 0:
                         ref_syllables = 1
                     gen_mel_len = int(ref_mel_len * (gen_syllables / ref_syllables) / speed)

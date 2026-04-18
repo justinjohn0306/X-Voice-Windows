@@ -199,9 +199,8 @@ class CFM(nn.Module):
             # predict flow (cond)
             current_cfg = cfg_strength
             current_cfg2 = cfg_strength2
-            if cfg_schedule == "linear":
+            if cfg_schedule == "square":
                 if t > cfg_decay_time:
-                    # linear decline
                     current_cfg = cfg_strength * ((1 - t) ** 2)
                     current_cfg2 = cfg_strength2 * ((1 - t) ** 2)
             elif cfg_schedule == "cosine":
@@ -242,9 +241,10 @@ class CFM(nn.Module):
             
             if layered:
                 pred, text_pred, null_pred = torch.chunk(pred_cfg, 3, dim=0)
-                delta_lang = pred - text_pred
-                delta_content = text_pred - null_pred  # Content delta: from noise to average pronunciation.
-                res = null_pred + (1.0 + current_cfg2) * delta_content + (1.0 + current_cfg) * delta_lang
+                delta_audio = pred - text_pred
+                delta_content = text_pred - null_pred
+                warmup_gate = torch.clamp(t / 0.01, max=1.0)
+                res = null_pred + (1.0 + current_cfg2 * warmup_gate) * delta_content + (1.0 + current_cfg) * delta_audio
             else:
                 pred, null_pred = torch.chunk(pred_cfg, 2, dim=0)
                 res = pred + (pred - null_pred) * current_cfg

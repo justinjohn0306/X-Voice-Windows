@@ -23,13 +23,17 @@ from x_voice.eval.utils_eval import (
     get_seedtts_testset_metainfo,
     get_testset_metainfo,
 )
-from x_voice.infer.utils_infer import load_checkpoint, load_vocoder
+from x_voice.infer.utils_infer import load_checkpoint, load_vocoder, normalize_audio_loudness, audio_post_processing
 from x_voice.model import CFM, CFM_SFT
 from x_voice.model.utils import get_tokenizer, get_ipa_id
 from x_voice.eval.speaking_rate_predictor import SpeedPredictor
 
 from x_voice.train.datasets.ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v3
 from x_voice.train.datasets.ipa_v6_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizer_v6
+import logging
+logger = logging.getLogger("phonemizer")
+logger.setLevel(logging.ERROR)
+logger.propagate = False
 
 # import debugpy
 # debugpy.listen(('localhost', 5678))
@@ -55,6 +59,7 @@ def main():
     parser.add_argument("-n", "--expname", required=True)
     parser.add_argument("-c", "--ckptstep", default=1250000, type=int)
 
+    parser.add_argument("--use_truth_duration", action="store_true")
     parser.add_argument("-sp", "--sp_type", default="utf", type=str)
     parser.add_argument("-ns", "--expnamesp", default=None, type=str)
     parser.add_argument("-cs", "--ckptstepsp", default=10000, type=int)
@@ -66,18 +71,20 @@ def main():
 
     parser.add_argument("-t", "--testset", required=True)
     parser.add_argument("-l", "--languages", default="en", help="Comma separated list of languages or 'all'")
+    parser.add_argument("-rl", "--reference_languages", default=None, help="Comma separated list of languages, length is the same as --languages")
     parser.add_argument("--normalize_text", action="store_true")
     parser.add_argument("--cfg_strength", default=2.0, type=float)
     parser.add_argument("--cfg_schedule", default=None, type=str)
     parser.add_argument("--cfg_decay_time", default=0.6, type=float)
     parser.add_argument("--cfg_strength2", default=0.0, type=float)
+    parser.add_argument("--speed", default=1.0, type=float)
     parser.add_argument("--decode_dir", default=None, type=str)
-    parser.add_argument("--concat_method", default=1, type=int)
     parser.add_argument("--layered", action="store_true")
     parser.add_argument("--drop_text", action="store_true")
+    parser.add_argument("--denoise_ref", action="store_true")
+    parser.add_argument("--post_processing", action="store_true")
+    parser.add_argument("--loudness_norm", action="store_true")
     
-    parser.add_argument("--cross_lingual", action="store_true")
-    parser.add_argument("-rl", "--reference_languages", default=None, help="Comma separated list of languages, length is the same as --languages")
     
 
     args = parser.parse_args()
@@ -98,9 +105,12 @@ def main():
     cfg_schedule = args.cfg_schedule
     cfg_decay_time = args.cfg_decay_time
     drop_text = args.drop_text
-    cross_lingual = args.cross_lingual
     decode_dir = args.decode_dir
-    concat_method = args.concat_method
+    
+    post_processing = args.post_processing
+    denoise_ref = args.denoise_ref
+    loudness_norm = args.loudness_norm
+    
     if sp_type in ["utf", "syllable"]:
         assert not drop_text, "\"utf\" or \"syllable\" methods need reference text to predict duration, if you want transcript free inference, use \"pretrained\" method"
     in2lang = { 
@@ -110,7 +120,6 @@ def main():
         "ko":"korean", "ja":"japanese", "ru":"russian",
         "ro":"romanian","hu":"hungarian","cs":"czech","fi":"finnish","hr":"croatian","sk":"slovak","sl":"slovenian","et":"estonian",
         "lt":"lthuanian","bg":"bulgarian","el":"greek","lv":"latvian","mt":"maltese","sv":"swedish","da":"danish",
-        "yue":"cantonese", "ca":"catalan"
     }
     lang2in = {value: key for key, value in in2lang.items()}
     if args.languages == "all":
@@ -126,7 +135,9 @@ def main():
             else:
                 print(f"Not supported {language}")
                 continue
-    if cross_lingual:
+    if args.reference_languages == "all":
+        reference_languages = list(in2lang.keys())
+    else:
         reference_languages = []
         ref_languages_set = args.reference_languages.split(",")
         for language in ref_languages_set:
@@ -142,8 +153,8 @@ def main():
     cfg_strength = args.cfg_strength
     cfg_strength2 = args.cfg_strength2
     layered = args.layered
-    speed = 1.0
-    use_truth_duration = False
+    speed = args.speed
+    use_truth_duration = args.use_truth_duration
     no_ref_audio = False
 
     model_cfg = OmegaConf.load(str(files("x_voice").joinpath(f"configs/{exp_name}.yaml")))
@@ -162,6 +173,7 @@ def main():
     
     
     sft = OmegaConf.select(model_cfg, "model.sft", default=False)  
+    stress = OmegaConf.select(model_cfg, "model.stress", default=True)  
     
     
     
@@ -274,13 +286,12 @@ def main():
         if tokenizer in tokenizer_class_map:
             ipa_id = get_ipa_id(in_language) 
             tokenizer_class = tokenizer_class_map[tokenizer]
-            ipa_tokenizer = tokenizer_class(language=ipa_id, with_stress=True)
-            # print("Disable stress marks in the vocabulary by uncommenting this and the related lines below.")
-            if cross_lingual:
-                ref_language= reference_languages[i]
-                ref_ipa_id = get_ipa_id(ref_language)
-                ref_ipa_tokenizer = tokenizer_class(language=ref_ipa_id, with_stress=True)
-                ref_language_idx = lang_to_id.get(ref_language, len(lang_to_id))
+            ipa_tokenizer = tokenizer_class(language=ipa_id, with_stress=stress)
+
+            ref_language= reference_languages[i]
+            ref_ipa_id = get_ipa_id(ref_language)
+            ref_ipa_tokenizer = tokenizer_class(language=ref_ipa_id, with_stress=stress)
+            ref_language_idx = lang_to_id.get(ref_language, len(lang_to_id))
         
         if testset == "ls_pc_test_clean":
             data_dir = "/data"
@@ -293,10 +304,10 @@ def main():
             metalst = data_dir + "/meta.lst"
             metainfo = get_seedtts_testset_metainfo(metalst, drop_text=drop_text)
             
-        elif testset in ["lemas_eval", "mixed_eval_with_gt"]:
+        elif testset in ["lemas_eval", "x_voice_eval"]:
             data_dir = rel_path + f"/data/{testset}/zero_shot/{in_language}"
             print(f"Loading {testset} data from: {data_dir}")
-            metainfo = get_testset_metainfo(data_dir, in_language, ref_language, drop_text=drop_text)
+            metainfo = get_testset_metainfo(data_dir, in_language, ref_language, drop_text=drop_text, use_truth_duration=use_truth_duration)
 
 
         # path to save genereted wavs
@@ -307,7 +318,7 @@ def main():
                 output_dir = (
                     f"{rel_path}/"
                     f"results/{exp_name}_{ckpt_step}/{testset}/"
-                    f"seed{seed}_concat{concat_method}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
+                    f"seed{seed}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
                     f"{f'_ss{sway_sampling_coef}' if sway_sampling_coef else ''}"
                     f"_cfg{cfg_strength}_speed{speed}"
                     f"{'_gt-dur' if use_truth_duration else ''}"
@@ -318,17 +329,14 @@ def main():
                 output_dir = (
                     f"{rel_path}/"
                     f"results/{exp_name}_{ckpt_step}/{testset}/"
-                    f"seed{seed}_concat{concat_method}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
+                    f"seed{seed}_{ode_method}_nfe{nfe_step}_{mel_spec_type}"
                     f"{f'_ss{sway_sampling_coef}' if sway_sampling_coef else ''}"
                     f"_cfgI{cfg_strength}_cfgII{cfg_strength2}_speed{speed}"
                     f"{'_gt-dur' if use_truth_duration else ''}"
                     f"{'_no-ref-audio' if no_ref_audio else ''}"
                     "zero_shot"
                 )
-        if cross_lingual:
-            output_dir += f"/{ref_language}_{in_language}/wavs"
-        else:
-            output_dir += f"/{in_language}/wavs"
+        output_dir += f"/{ref_language}_{in_language}/wavs"
                 
         print(f"will be saved to:{output_dir}")
         
@@ -358,6 +366,7 @@ def main():
             device=device,
             ref_language=ref_language,
             ref_ipa_tokenizer=ref_ipa_tokenizer,
+            denoise_ref_wav=denoise_ref
         )
  
         # start batch inference
@@ -374,16 +383,7 @@ def main():
                 batch_lang_ids = []
                 batch_prompt_lang_ids = []
                 for r_len, g_len in zip(ref_text_lens, gen_text_lens):
-                    if cross_lingual and text_infill_lang_type in ["token_concat", "ada"]:
-                        if concat_method == 1:
-                            ids = [ref_language_idx] * r_len + [in_language_idx] * g_len
-                        elif concat_method == 2:
-                            ids =  [in_language_idx] * (r_len + g_len)
-                        elif concat_method == 3:
-                            unk_idx = len(lang_to_id)
-                            ids = [unk_idx] * r_len + [in_language_idx] * g_len
-                    else:
-                        ids = [in_language_idx] * (r_len + g_len)
+                    ids = [in_language_idx] * (r_len + g_len)
                     batch_lang_ids.append(torch.tensor(ids))
                 lang_ids_tensor = pad_sequence(batch_lang_ids, batch_first=True, padding_value=in_language_idx).to(device)
                 with torch.inference_mode():
@@ -406,20 +406,8 @@ def main():
                         infer_mode=(False if dtype == torch.float32 else True),
                     )
                     # Final result
-                    def strong_asymptotic_saturation(mel, threshold=2.8, limit=3.5, start_bin=60):
-                        mel_high = mel[:, :, start_bin:]
-                        def apply_limit(x, t, m):
-                            # Only values above the threshold enter the tanh branch.
-                            margin = m - t
-                            return torch.where(
-                                x < t,
-                                x,
-                                t + margin * torch.tanh((x - t) / margin)
-                            )
-                        mel[:, :, start_bin:] = apply_limit(mel_high, threshold, limit)
-                        return mel
-                    
-                    generated = strong_asymptotic_saturation(generated, threshold=2.5, limit=3.5)
+                    if post_processing:
+                        generated = audio_post_processing(generated, threshold=2.5, limit=3.5)
                     
                     for i, gen in enumerate(generated):
                         
@@ -427,7 +415,6 @@ def main():
                             gen = gen[: total_mel_lens[i] - ref_mel_lens[i], :].unsqueeze(0)
                         else:
                             gen = gen[ref_mel_lens[i] : total_mel_lens[i], :].unsqueeze(0)
-                            # gen = gen[ : total_mel_lens[i], :].unsqueeze(0) # Temporary test path.
                         gen_mel_spec = gen.permute(0, 2, 1).to(torch.float32)
                         if mel_spec_type == "vocos":
                             generated_wave = vocoder.decode(gen_mel_spec).cpu()
@@ -436,6 +423,9 @@ def main():
 
                         if ref_rms_list[i] < target_rms:
                             generated_wave = generated_wave * ref_rms_list[i] / target_rms
+                        if loudness_norm:
+                            generated_wave = normalize_audio_loudness(generated_wave, target_sample_rate, target_lufs=-23.0)
+                        
                         torchaudio.save(f"{output_dir}/{utts[i]}.wav", generated_wave, target_sample_rate)
         accelerator.wait_for_everyone()
         if accelerator.is_main_process:
