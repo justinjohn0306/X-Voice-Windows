@@ -39,13 +39,12 @@ python src/x_voice/train/datasets/prepare_ipa.py \
     --inp_dir path/to/train-set/of/x-voice/ \
     --dnsmos 2.0 --check_exists
 ```
-Required arguments
-- `--dataset_name`:  the dataset name you want to set, for example `multilingual_full`; this will be used in later training configurations
-- `--inp_dir`: the **absolute path** to the downloaded x-voice dataset, for example `/home/datasets/x_voice/`
-
-Optional arguments
-- `--dnsmos`: a dnsmos threshold; entries below this threshold will be excluded from training
-- `--check_exists`: checks whether audio files exist under dataset path `x_voice/wavs` to avoid file-not-found errors during training.
+| Type | Argument | Description |
+| --- | --- | --- |
+| Required | `--dataset_name` | The dataset name to use (for example, `multilingual_full`). This value is used in later training configurations. |
+| Required | `--inp_dir` | The **absolute path** to the downloaded X-Voice dataset, for example `/home/datasets/x_voice/`. |
+| Optional | `--dnsmos` | A DNSMOS threshold. Entries below this value are excluded from training. |
+| Optional | `--check_exists` | Checks whether audio files exist under `x_voice/wavs` to avoid file-not-found errors during training. |
 
 
 
@@ -138,10 +137,10 @@ Here you need to explicitly provide `sft_gen_dir`, which is where the `.pt` and 
 ### 2. Prepare training config
 Create a `.yaml` file under `./src/x_voice/config`, for example `x_voice_stage2_multilingual_subset.yaml`, refer to [this example](https://github.com/sunnyxrxrx/X-Voice/blob/main/src/x_voice/configs/F5TTS_v1_Base_multilingual_full_catada_sft.yaml).
 
-Note:
-- `model.sft` must be set to `True`
-- `model.use_total_text` set to `False`
-- `ckpts.pretrained_path` pass the path to Stage 1 model weights
+> [!NOTE]
+>- `model.sft` must be set to `True`
+>- `model.use_total_text` set to `False`
+>- `ckpts.pretrained_path` pass the path to Stage 1 model weights
 
 ### 3. Run training
 ```
