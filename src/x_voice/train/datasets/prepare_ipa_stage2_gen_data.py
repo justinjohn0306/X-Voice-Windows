@@ -298,4 +298,4 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
     main()
     
-# python src/x_voice/train/datasets/prepare_ipa_phase2_gen_data.py --tokenizer ipa_v6 --dataset_name multilingual_xrx_test_gendata --check_exists
+# python src/x_voice/train/datasets/prepare_ipa_stage2_gen_data.py --tokenizer ipa_v6 --dataset_name multilingual_xrx_test_gendata --check_exists

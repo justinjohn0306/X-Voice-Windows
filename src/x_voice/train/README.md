@@ -1,67 +1,80 @@
 # Training
 
-Check your FFmpeg installation:
+- Check your FFmpeg installation:
+  ```bash
+  ffmpeg -version
+  ```
+  If not found, install it first (or skip this if you know other backends are available).
+
+- Check your ESpeak-ng installation:
+  ```bash
+  espeak-ng --version 
+  ```
+  If not found, run `x_voice/prepare_ipa.sh` first.
+
+- Download [our dataset](https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train) and organize it in the following structure:
+  ```
+  x_voice/
+  ├── wavs/
+  │   ├── bg/
+  │   ├── ...
+  │   └── zh/
+  ├── csvs/
+  │   ├── metadata_bg_voxpopuli.csv
+  │   ├── ...
+  │   └── metadata_zh_emilia.csv
+  └── csvs_stage2/
+      ├── metadata_bg_voxpopuli.csv
+      ├── ...
+      └── metadata_zh_emilia.csv
+  ```
+- Optional: Download the [original F5-TTS checkpoint](https://huggingface.co/SWivid/F5-TTS/blob/main/F5TTS_v1_Base/model_1250000.safetensors), so that we can load the pretrained DiT module during training and make convergence faster.
+
+## Stage 1  Training
+### 1. Data Preparation
+In this part, we first convert transcripts into the unified IPA representation.
 ```bash
-ffmpeg -version
+python src/x_voice/train/datasets/prepare_ipa.py \
+    --dataset_name multilingual_full \
+    --inp_dir path/to/train-set/of/x-voice/ \
+    --dnsmos 2.0 --check_exists
 ```
-If not found, install it first (or skip assuming you know of other backends available).
+Required arguments
+- `--dataset_name`:  the dataset name you want to set, for example `multilingual_full`; this will be used in later training configurations
+- `--inp_dir`: the **absolute path** to the downloaded x-voice dataset, for example `/home/datasets/x_voice/`
 
-## Prepare Dataset
+Optional arguments
+- `--dnsmos`: a dnsmos threshold; entries below this threshold will be excluded from training
+- `--check_exists`: checks whether audio files exist under dataset path `x_voice/wavs` to avoid file-not-found errors during training.
 
-Example data processing scripts, and you may tailor your own one along with a Dataset class in `src/f5_tts/model/dataset.py`.
 
-### 1. Some specific Datasets preparing scripts
-Download corresponding dataset first, and fill in the path in scripts.
 
-```bash
-# Prepare the Emilia dataset
-python src/f5_tts/train/datasets/prepare_emilia.py
+### 2. Configure training parameters
+Once your datasets are prepared, we can start the training process.
 
-# Prepare the Wenetspeech4TTS dataset
-python src/f5_tts/train/datasets/prepare_wenetspeech4tts.py
+Create a `.yaml` file under `./src/x_voice/config`, for example `x_voice_stage1_multilingual_full.yaml`, refer to [this example](https://github.com/sunnyxrxrx/X-Voice/blob/main/src/x_voice/configs/F5TTS_v1_Base_multilingual_full_catada_stress_nomask.yaml)
 
-# Prepare the LibriTTS dataset
-python src/f5_tts/train/datasets/prepare_libritts.py
+Modify the following parameters:
+- `datasets.name`: the dataset name just prepared
+- `model.name`: your custom model name
+- `vocoder.is_local` and `vocoder.local_path`: specify local vocoder path if you have downloaded it in advance
+- `ckpts.pretrained_path`: provide the path to the downloaded original F5-TTS checkpoints
 
-# Prepare the LJSpeech dataset
-python src/f5_tts/train/datasets/prepare_ljspeech.py
-```
-
-### 2. Create custom dataset with metadata.csv
-Use guidance see [#57 here](https://github.com/SWivid/F5-TTS/discussions/57#discussioncomment-10959029).
+### 2. Training script used for pretrained model
 
 ```bash
-python src/f5_tts/train/datasets/prepare_csv_wavs.py
-```
-
-## Training & Finetuning
-
-Once your datasets are prepared, you can start the training process.
-
-### 1. Training script used for pretrained model
-
-```bash
-# setup accelerate config, e.g. use multi-gpu ddp, fp16
+# setup accelerate config, e.g. use multi-gpu ddp, mixed-precision. bf16 mixed-precision is recommended.
 # will be to: ~/.cache/huggingface/accelerate/default_config.yaml     
 accelerate config
 
-# .yaml files are under src/f5_tts/configs directory
-accelerate launch src/f5_tts/train/train.py --config-name F5TTS_v1_Base.yaml
+# pass in the .yaml file you just configured
+accelerate launch src/x_voice/train/train.py  --config-name x_voice_stage1_multilingual_full.yaml
 
 # possible to overwrite accelerate and hydra config
-accelerate launch --mixed_precision=fp16 src/f5_tts/train/train.py --config-name F5TTS_v1_Base.yaml ++datasets.batch_size_per_gpu=19200
+accelerate launch --mixed_precision=bf16 src/x_voice/train/train.py --config-name x_voice_stage1_multilingual_full.yaml ++datasets.batch_size_per_gpu=19200
 ```
 
-### 2. Finetuning practice
-Discussion board for Finetuning [#57](https://github.com/SWivid/F5-TTS/discussions/57).
 
-Gradio UI training/finetuning with `src/f5_tts/train/finetune_gradio.py` see [#143](https://github.com/SWivid/F5-TTS/discussions/143).
-
-If want to finetune with a variant version e.g. *F5TTS_v1_Base_no_zero_init*, manually download pretrained checkpoint from model weight repository and fill in the path correspondingly on web interface.
-
-If use tensorboard as logger, install it first with `pip install tensorboard`.
-
-<ins>The `use_ema = True` might be harmful for early-stage finetuned checkpoints</ins> (which goes just few updates, thus ema weights still dominated by pretrained ones), try turn it off with finetune gradio option or `load_model(..., use_ema=False)`, see if offer better results.
 
 ### 3. W&B Logging
 
@@ -89,4 +102,48 @@ Moreover, if you couldn't access W&B and want to log metrics offline, you can se
 
 ```
 export WANDB_MODE=offline
+```
+
+## Inferencing for Stage 2
+### 1. Data preparation
+Similarly, convert transcripts into the unified IPA representation.
+```
+python src/x_voice/train/datasets/prepare_ipa_stage2_gen_data.py \
+    --tokenizer ipa_v6 \
+    --dataset_name multilingual_subset \
+    --inp_dir path/to/train-set/of/x-voice/ \
+    --check_exists
+```
+Command-line arguments are the same as [data preparation for stage 1 training](#1-data-preparation), but the `--dnsmos` threshold is not provided because this step already uses the dnsmos-filtered subset.
+### 2. Prepare inference config
+Then, create a `.yaml` file under `./src/x_voice/config`, for example `x_voice_infer_multilingual_subset.yaml`, refer to [this example](https://github.com/sunnyxrxrx/X-Voice/blob/main/src/x_voice/configs/F5TTS_v1_Base_multilingual_full_catada_inference.yaml).
+
+### 3. Run inference
+```
+accelerate launch src/x_voice/train/inference_gp.py --config-name x_voice_infer_multilingual_subset.yaml
+```
+The `.pt` and `.json` files generated by inference are stored by default in `./[dataset_name]_gp/`. The internal path follows those in `metadata_*.csv`, for example `bg/2009/xxx.pt` and `bg/2009/xxx.json`.
+## Stage 2 Training
+### 1. Data preparation
+```
+python src/x_voice/train/datasets/prepare_ipa_sft.py  \
+    --tokenizer ipa_v6 \
+    --dataset_name multilingual_subset \
+    --inp_dir path/to/train-set/of/x-voice/ \
+    --sft_gen_dir path/to/generated/pt/and/json/ 
+    --check_exists
+```
+Here you need to explicitly provide `sft_gen_dir`, which is where the `.pt` and `.json` files generated by inference are stored.
+
+### 2. Prepare training config
+Create a `.yaml` file under `./src/x_voice/config`, for example `x_voice_stage2_multilingual_subset.yaml`, refer to [this example](https://github.com/sunnyxrxrx/X-Voice/blob/main/src/x_voice/configs/F5TTS_v1_Base_multilingual_full_catada_sft.yaml).
+
+Note:
+- `model.sft` must be set to `True`
+- `model.use_total_text` set to `False`
+- `ckpts.pretrained_path` pass the path to Stage 1 model weights
+
+### 3. Run training
+```
+accelerate launch src/x_voice/train/train_sft.py  --config-name x_voice_stage2_multilingual_subset.yaml
 ```
