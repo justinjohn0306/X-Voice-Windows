@@ -6,7 +6,7 @@ datasets:
   num_workers: 16
 
 source:
-  expname: F5TTS_v1_Base_multilingual_full_catada_stress_nomask
+  expname: XVoice_v1_Base_multilingual_full_catada_stress_nomask
   ckptstep: 600000
 
 infer:
@@ -15,5 +15,3 @@ infer:
   sway_sampling_coef: -1.0
   gen_root: null # Output root for generated results; null disables saving.
   save_wav: False # Whether to save generated wav files.
-
-# accelerate launch src/x_voice/train/inference_gp.py --config-name F5TTS_v1_Base_multilingual_xrx_test_gendata.yaml
