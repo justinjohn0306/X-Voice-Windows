@@ -392,3 +392,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python -m x_voice.infer.infer_cli -c src/x_voice/infer/examples/basic/basic.toml

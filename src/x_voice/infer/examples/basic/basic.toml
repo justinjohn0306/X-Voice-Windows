@@ -2,9 +2,9 @@
 # Update ckpt_file to the actual Stage1 checkpoint path before running.
 
 model = "XVoice_Base_Stage1"
-model_cfg = ""
+model_cfg = "src/x_voice/configs/XVoice_Base_Stage1.yaml"
 ckpt_file = "ckpts/stage1_model_500000.safetensors"
-vocab_file = ""
+vocab_file = "src/x_voice/infer/examples/vocab.txt"
 
 ref_audio = "infer/examples/basic/basic_ref_en.wav"
 ref_text = "Some call me nature, others call me mother nature."
