@@ -84,8 +84,6 @@ VOCAB_FILE = "XVoice_Base_Stage1/vocab.txt"
 STAGE1_CFG = str(files("x_voice").joinpath("configs/XVoice_Base_Stage1.yaml"))
 STAGE2_CFG = str(files("x_voice").joinpath("configs/XVoice_Base_Stage2.yaml"))
 SRP_CFG = str(files("srp").joinpath("configs/SpeedPredict_Multilingual.yaml"))
-EXAMPLE_REF_EN = str(files("x_voice").joinpath("infer/examples/gradio_sample/ref_en.wav"))
-EXAMPLE_REF_ZH = str(files("x_voice").joinpath("infer/examples/gradio_sample/ref_zh.wav"))
 
 VOCODER_NAME = "vocos"
 TARGET_RMS = 0.1
@@ -346,14 +344,6 @@ with gr.Blocks() as app:
         label="Reference Text",
         lines=3,
         placeholder="Optional for Stage1. Leave empty to transcribe with Whisper.",
-    )
-    gr.Examples(
-        examples=[
-            [EXAMPLE_REF_EN, "Some call me nature, others call me mother nature"],
-            [EXAMPLE_REF_ZH, "对，这就是我，万人敬仰的太乙真人"],
-        ],
-        inputs=[ref_audio_input, ref_text_input],
-        label="Example Prompts",
     )
     gen_text_input = gr.Textbox(label="Text to Generate", lines=8)
     generate_btn = gr.Button("Synthesize", variant="primary")
