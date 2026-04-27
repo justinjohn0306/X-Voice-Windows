@@ -22,6 +22,7 @@ dependencies = [
     "click",
     "ctranslate2==4.5.0",
     "datasets",
+    "deepfilternet",
     "ema_pytorch>=0.5.2",
     "epitran",
     "finnsyll",

@@ -30,6 +30,7 @@ from omegaconf import OmegaConf
 from pydub import AudioSegment, silence
 from transformers import pipeline
 from vocos import Vocos
+from fastlid import fastlid
 
 from x_voice.model.cfm import CFM
 from x_voice.model.cfm_sft import CFM_SFT
@@ -38,12 +39,6 @@ from srp.model.utils import count_syllables
 from x_voice.model.utils import convert_char_to_pinyin, get_ipa_id, get_tokenizer, str_to_list_ipa_all
 from x_voice.train.datasets.ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizerV3
 from x_voice.train.datasets.ipa_v6_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizerV6
-
-try:
-    from fastlid import fastlid
-except ImportError:
-    fastlid = None
-
 
 _ref_audio_cache = {}
 _ref_text_cache = {}
