@@ -917,21 +917,21 @@ def infer_xvoice_process(
 ):
     audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
     ref_audio_len = audio.shape[-1] // hop_length
+    ref_seconds = audio.shape[-1] / target_sample_rate
+    remaining_seconds = 26 - ref_seconds
     predicted_speed = predict_ref_speed(srp_model, audio)
 
     if sp_type in {"syllable", "pretrained"}:
         if sp_type == "pretrained" and predicted_speed:
-            max_units = max(int(predicted_speed * (22 - audio.shape[-1] / target_sample_rate)), 1)
+            max_units = max(int(predicted_speed * remaining_seconds * local_speed), 1)
         else:
             max_units = max(
-                int(count_units(ref_text, ref_lang) / (audio.shape[-1] / target_sample_rate) * 18 * local_speed),
+                int(count_units(ref_text, ref_lang) / ref_seconds * remaining_seconds * local_speed),
                 1,
             )
         gen_text_batches = chunk_text_by_units(gen_text, gen_lang, max_units)
     else:
-        max_chars = int(
-            len(ref_text.encode("utf-8")) / (audio.shape[-1] / target_sample_rate) * 18 * local_speed
-        )
+        max_chars = int(len(ref_text.encode("utf-8")) / ref_seconds * remaining_seconds * local_speed)
         gen_text_batches = chunk_text_by_chars(gen_text, max_chars=max(max_chars, 1))
 
     for i, batch_text in enumerate(gen_text_batches):
@@ -1079,11 +1079,12 @@ def infer_xvoice_droptext_process(
     audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
     ref_audio_len = audio.shape[-1] // hop_length
     prompt_seconds = audio.shape[-1] / target_sample_rate
+    remaining_seconds = 26 - prompt_seconds
     predicted_speed = predict_ref_speed(srp_model, audio)
     if predicted_speed is None:
         raise ValueError("drop-text inference requires SRP speed prediction.")
 
-    max_units = max(int(predicted_speed * max(22 - prompt_seconds, 1)), 1)
+    max_units = max(int(predicted_speed * remaining_seconds * local_speed), 1)
     gen_text_batches = chunk_text_by_units(gen_text, gen_lang, max_units)
 
     for i, batch_text in enumerate(gen_text_batches):
