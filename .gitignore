@@ -6,3 +6,4 @@ outputs/
 runs/
 *.safetensors
 my_vocoder
+tests/

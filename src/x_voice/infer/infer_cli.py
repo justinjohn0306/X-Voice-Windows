@@ -23,7 +23,6 @@ from x_voice.infer.utils_infer import (
     get_ipa_tokenizer_cache,
     infer_xvoice_process,
     load_model,
-    load_model_sft,
     load_srp_model,
     load_vocoder,
     mel_spec_type,
@@ -137,8 +136,9 @@ tokenizer = args.tokenizer or config.get("tokenizer") or model_cfg.model.tokeniz
 tokenizer_path = model_cfg.model.get("tokenizer_path", None)
 dataset_name = model_cfg.datasets.name
 sft = bool(model_cfg.model.get("sft", False))
-use_total_text = bool(model_cfg.model.get("use_total_text", False))
 stress = bool(model_cfg.model.get("stress", True))
+if sft:
+    raise ValueError("infer_cli.py is for Stage1 inference only. Use infer_cli_droptext.py for X-Voice Stage2.")
 
 vocoder_name = args.vocoder_name or config.get("vocoder_name", model_cfg.model.mel_spec.mel_spec_type)
 target_rms = args.target_rms or config.get("target_rms", target_rms)
@@ -210,33 +210,18 @@ print(f"Using {model}...")
 print(f"Checkpoint: {ckpt_file}")
 print(f"Tokenizer: {tokenizer}")
 
-if sft:
-    ema_model = load_model_sft(
-        model_cls,
-        model_arc,
-        ckpt_file,
-        mel_spec_type=vocoder_name,
-        vocab_file=vocab_file,
-        device=device,
-        use_total_text=use_total_text,
-        tokenizer=tokenizer,
-        tokenizer_path=tokenizer_path,
-        dataset_name=dataset_name,
-        mel_spec_kwargs=mel_spec_kwargs,
-    )
-else:
-    ema_model = load_model(
-        model_cls,
-        model_arc,
-        ckpt_file,
-        mel_spec_type=vocoder_name,
-        vocab_file=vocab_file,
-        device=device,
-        tokenizer=tokenizer,
-        tokenizer_path=tokenizer_path,
-        dataset_name=dataset_name,
-        mel_spec_kwargs=mel_spec_kwargs,
-    )
+ema_model = load_model(
+    model_cls,
+    model_arc,
+    ckpt_file,
+    mel_spec_type=vocoder_name,
+    vocab_file=vocab_file,
+    device=device,
+    tokenizer=tokenizer,
+    tokenizer_path=tokenizer_path,
+    dataset_name=dataset_name,
+    mel_spec_kwargs=mel_spec_kwargs,
+)
 
 lang_to_id_map = getattr(ema_model.transformer, "lang_to_id", {})
 ipa_tokenizer_getter = get_ipa_tokenizer_cache(tokenizer, stress)
