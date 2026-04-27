@@ -30,6 +30,7 @@ dependencies = [
     "hydra-core>=1.3.0",
     "jieba",
     "fastlid",
+    "fasttext",
     "librosa",
     "matplotlib",
     "nemo_text_processing",
