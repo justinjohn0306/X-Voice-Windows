@@ -241,7 +241,7 @@ def main():
     parser.add_argument("--sft_gen_dir", type=str, required=True, help="Root dir containing generated .pt and .json files (e.g. multilingual_sft_gen)")
     parser.add_argument("--workers", type=int, default=16, help="Number of CPU workers")
     parser.add_argument("--tokenizer",type=str, choices=support_tokenizer, default="ipa_v3")
-    parser.add_argument("--dataset_name",type=str, required=True)
+    parser.add_argument("--dataset_name",type=str, default="XVoice_Dataset")
     parser.add_argument("--check_exists", action="store_true", help="Whether to check if the audio file exists before processing.")
     
     args = parser.parse_args()

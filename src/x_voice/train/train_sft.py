@@ -55,7 +55,6 @@ def main(model_cfg):
         cond_drop_prob=cond_drop_prob,
         use_total_text=use_total_text,
     )
-    # print(f"Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
     pretrained_path = model_cfg.ckpts.get("pretrained_path", None)
     if pretrained_path is None:
         raise ValueError("pretrained_path is required in SFT mode.")

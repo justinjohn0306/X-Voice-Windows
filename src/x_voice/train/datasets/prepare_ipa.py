@@ -255,7 +255,7 @@ def main():
     parser.add_argument("--out_dir", type=str, default="./data",help="Output root dir for raw.arrow")
     parser.add_argument("--workers", type=int, default=16, help="Number of CPU workers")
     parser.add_argument("--tokenizer",type=str, choices=support_tokenizer, default="ipa_v6")
-    parser.add_argument("--dataset_name",type=str, default="multilingual_qyl_test")
+    parser.add_argument("--dataset_name",type=str, default="XVoice_Dataset")
     parser.add_argument("--dnsmos", type=float, default=None, help="min value of dnsmos")
     parser.add_argument("--check_exists", action="store_true", help="Whether to check if the audio file exists before processing.")
     
