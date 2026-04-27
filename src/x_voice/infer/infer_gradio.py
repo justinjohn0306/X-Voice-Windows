@@ -334,7 +334,13 @@ def switch_model(model_choice, current_ref_text):
 
 
 with gr.Blocks() as app:
-    gr.Markdown("# X-Voice Inference")
+    gr.Markdown(
+        """
+# X-Voice Online Demo
+
+Clone a reference voice and generate natural speech from text in any of 30 supported languages.
+"""
+    )
 
     with gr.Row():
         with gr.Column(scale=1):
