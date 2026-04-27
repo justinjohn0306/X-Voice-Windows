@@ -33,6 +33,28 @@ from transformers import pipeline
 from vocos import Vocos
 from fastlid import fastlid
 
+
+@contextlib.contextmanager
+def suppress_stdout_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stdout_fd = os.dup(1)
+        old_stderr_fd = os.dup(2)
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                yield
+        finally:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.dup2(old_stdout_fd, 1)
+            os.dup2(old_stderr_fd, 2)
+            os.close(old_stdout_fd)
+            os.close(old_stderr_fd)
+
+
 from x_voice.model.cfm import CFM
 from x_voice.model.cfm_sft import CFM_SFT
 from srp.model.speed_predictor import SpeedPredictor
@@ -546,11 +568,10 @@ def _init_ref_wav_denoiser() -> bool:
     _REF_WAV_DENOISER["initialized"] = True
     try:
         # DeepFilterNet2 is a strong speech denoiser and supports real-world noise.
-        with open(os.devnull, "w") as devnull:
-            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-                from df.enhance import enhance, init_df
+        with suppress_stdout_stderr():
+            from df.enhance import enhance, init_df
 
-                model, state, _ = init_df()
+            model, state, _ = init_df()
         _REF_WAV_DENOISER.update(
             {
                 "available": True,
@@ -739,10 +760,10 @@ def normalize_text_for_lang(text, lang, normalizer_cache):
         return text
 
     if lang not in normalizer_cache:
-        with open(os.devnull, "w") as devnull:
-            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
-                normalizer_cache[lang] = TextNormalizer(language=lang)
-    return normalizer_cache[lang].normalize(text)
+        with suppress_stdout_stderr():
+            normalizer_cache[lang] = TextNormalizer(language=lang)
+    with suppress_stdout_stderr():
+        return normalizer_cache[lang].normalize(text)
 
 
 def prepare_text_tokens(text, tokenizer_name, lang, ipa_tokenizer_getter):
