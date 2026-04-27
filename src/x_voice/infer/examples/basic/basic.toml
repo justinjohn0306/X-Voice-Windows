@@ -15,7 +15,7 @@ lang = "en"
 ref_lang = "en"
 gen_lang = "en"
 auto_detect_lang = false
-normalize_text = false
+normalize_text = true
 
 sp_type = "syllable"
 srp_ckpt_file = ""
