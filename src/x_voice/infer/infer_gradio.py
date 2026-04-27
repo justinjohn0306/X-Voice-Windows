@@ -336,28 +336,32 @@ def switch_model(model_choice, current_ref_text):
 with gr.Blocks() as app:
     gr.Markdown("# X-Voice Inference")
 
-    choose_model = gr.Radio(
-        choices=[STAGE1_MODEL, STAGE2_MODEL],
-        label="Choose Model",
-        value=STAGE1_MODEL,
-    )
-    ref_audio_input = gr.Audio(label="Reference Audio", type="filepath")
-    ref_text_input = gr.Textbox(
-        label="Reference Text",
-        lines=3,
-        placeholder="Optional for Stage1. Leave empty to transcribe with Whisper.",
-    )
-    gen_text_input = gr.Textbox(label="Text to Generate", lines=8)
-    generate_btn = gr.Button("Synthesize", variant="primary")
-    audio_output = gr.Audio(label="Generated Audio")
-    gr.Examples(
-        examples=[
-            [EXAMPLE_REF_EN, "Some call me nature, others call me mother nature"],
-            [EXAMPLE_REF_ZH, "对，这就是我，万人敬仰的太乙真人"],
-        ],
-        inputs=[ref_audio_input, ref_text_input],
-        label="Example Prompts",
-    )
+    with gr.Row():
+        with gr.Column(scale=1):
+            choose_model = gr.Radio(
+                choices=[STAGE1_MODEL, STAGE2_MODEL],
+                label="Choose Model",
+                value=STAGE1_MODEL,
+            )
+            ref_audio_input = gr.Audio(label="Reference Audio", type="filepath")
+            ref_text_input = gr.Textbox(
+                label="Reference Text",
+                lines=3,
+                placeholder="Optional for Stage1. Leave empty to transcribe with Whisper.",
+            )
+            gen_text_input = gr.Textbox(label="Text to Generate", lines=8)
+            generate_btn = gr.Button("Synthesize", variant="primary")
+
+        with gr.Column(scale=1):
+            audio_output = gr.Audio(label="Generated Audio")
+            gr.Examples(
+                examples=[
+                    [EXAMPLE_REF_EN, "Some call me nature, others call me mother nature"],
+                    [EXAMPLE_REF_ZH, "对，这就是我，万人敬仰的太乙真人"],
+                ],
+                inputs=[ref_audio_input, ref_text_input],
+                label="Example Prompts",
+            )
 
     choose_model.change(
         switch_model,
