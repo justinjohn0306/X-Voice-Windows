@@ -1,10 +1,37 @@
 import argparse
 import codecs
+import logging
 import os
 import re
+import warnings
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
+
+
+def _silence_inference_logs():
+    warnings.filterwarnings("ignore")
+    logging.captureWarnings(True)
+    logging.basicConfig(level=logging.ERROR)
+    logging.getLogger().setLevel(logging.ERROR)
+    for logger_name in (
+        "NeMo-text-processing",
+        "tokenize_and_classify.py",
+        "DF",
+        "df",
+        "fastlid",
+        "logzero",
+    ):
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+    try:
+        from loguru import logger as loguru_logger
+
+        loguru_logger.remove()
+    except Exception:
+        pass
+
+
+_silence_inference_logs()
 
 import numpy as np
 import soundfile as sf

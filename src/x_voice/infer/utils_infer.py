@@ -1,5 +1,6 @@
 # A unified script for inference process
 # Make adjustments inside functions, and consider both gradio and cli scripts if need to change func output format
+import contextlib
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -493,7 +494,6 @@ def _init_loudness_normalizer() -> bool:
                 "np": np,
             }
         )
-        print("[INFO] Loudness normalizer loaded.")
     except Exception as e:
         print(f"[WARN] pyloudnorm unavailable, fallback to torchaudio loudness. Detail: {e}")
 
@@ -523,7 +523,6 @@ def normalize_audio_loudness(
                 normalized_np = pyln.normalize.loudness(wav_np, current_loudness, target_lufs)
                 max_val = float(np.abs(normalized_np).max()) if normalized_np.size > 0 else 0.0
                 if max_val >= 1.0:
-                    print(f"[WARN] peak exceed 1.0.")
                     normalized_np = normalized_np / max_val * 0.99
                 audio = torch.from_numpy(normalized_np).transpose(0, 1).to(torch.float32)
         except Exception as e:
@@ -547,9 +546,11 @@ def _init_ref_wav_denoiser() -> bool:
     _REF_WAV_DENOISER["initialized"] = True
     try:
         # DeepFilterNet2 is a strong speech denoiser and supports real-world noise.
-        from df.enhance import enhance, init_df
+        with open(os.devnull, "w") as devnull:
+            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                from df.enhance import enhance, init_df
 
-        model, state, _ = init_df()
+                model, state, _ = init_df()
         _REF_WAV_DENOISER.update(
             {
                 "available": True,
@@ -559,7 +560,6 @@ def _init_ref_wav_denoiser() -> bool:
                 "sample_rate": state.sr(),
             }
         )
-        print(f"[INFO] Ref wav denoiser loaded (DeepFilterNet2 @ {_REF_WAV_DENOISER['sample_rate']} Hz).")
     except Exception as e:
         print(f"[WARN] Ref wav denoiser unavailable, skip denoise. Install deepfilternet to enable it. Detail: {e}")
 
@@ -739,7 +739,9 @@ def normalize_text_for_lang(text, lang, normalizer_cache):
         return text
 
     if lang not in normalizer_cache:
-        normalizer_cache[lang] = TextNormalizer(language=lang)
+        with open(os.devnull, "w") as devnull:
+            with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+                normalizer_cache[lang] = TextNormalizer(language=lang)
     return normalizer_cache[lang].normalize(text)
 
 
