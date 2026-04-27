@@ -61,7 +61,7 @@ dependencies = [
     "torchcodec",
     "torchdiffeq",
     "tqdm>=4.65.0",
-    "transformers",
+    "transformers<=4.48.3",
     "transformers_stream_generator",
     "unidecode",
     "vocos",
