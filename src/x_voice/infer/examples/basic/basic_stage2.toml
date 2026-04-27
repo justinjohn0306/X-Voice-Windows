@@ -1,25 +1,25 @@
 # Basic X-Voice Stage2 drop-text inference config.
 # Update ckpt_file and srp_ckpt_file to real local checkpoints before running.
 
-model = "XVoice_v1_Base_Stage2"
-model_cfg = ""
-ckpt_file = "ckpts/XVoice_v1_Base_Stage2_vocos_ipa_v6_XVoice_Dataset/model_70000.pt"
-vocab_file = ""
+model = "XVoice_Base_Stage2"
+model_cfg = "src/x_voice/configs/XVoice_Base_Stage2.yaml"
+ckpt_file = "ckpts/stage2_model_70000.safetensors"
+vocab_file = "src/x_voice/infer/examples/vocab.txt"
 
-srp_ckpt_file = "ckpts/SpeedPredict_Multilingual/model_28000.pt"
-srp_model_cfg = ""
+
+srp_ckpt_file = "ckpts/srp_model_20000.safetensors"
+srp_model_cfg = "src/srp/configs/SpeedPredict_Multilingual.yaml"
 
 ref_audio = "infer/examples/basic/basic_ref_en.wav"
-ref_text = ""
 gen_text = "I don't really care what you call me. I've been a silent spectator, watching species evolve, empires rise and fall. But always remember, I am mighty and enduring."
 gen_file = ""
 
-gen_lang = "en"
-auto_detect_lang = false
+gen_lang = ""
+auto_detect_lang = true
 normalize_text = true
 
 output_dir = "tests"
-output_file = "infer_cli_droptext_basic.wav"
+output_file = "infer_cli_basic_stage2.wav"
 save_chunk = false
 remove_silence = false
 

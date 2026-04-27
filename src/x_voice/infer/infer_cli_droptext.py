@@ -378,4 +378,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python -m x_voice.infer.infer_cli_droptext  -c src/x_voice/infer/examples/basic/basic_stage2.toml
+# python -m x_voice.infer.infer_cli_droptext -c src/x_voice/infer/examples/basic/basic_stage2.toml
