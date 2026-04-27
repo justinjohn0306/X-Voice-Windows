@@ -12,6 +12,7 @@ import hashlib
 import re
 import tempfile
 from importlib.resources import files
+from pathlib import Path
 
 import matplotlib
 
@@ -23,13 +24,24 @@ import numpy as np
 import torch
 import torchaudio
 import tqdm
+from cached_path import cached_path
 from huggingface_hub import hf_hub_download
+from omegaconf import OmegaConf
 from pydub import AudioSegment, silence
 from transformers import pipeline
 from vocos import Vocos
 
 from x_voice.model import CFM, CFM_SFT
-from x_voice.model.utils import convert_char_to_pinyin, get_tokenizer
+from srp.model.speed_predictor import SpeedPredictor
+from srp.model.utils import count_syllables
+from x_voice.model.utils import convert_char_to_pinyin, get_ipa_id, get_tokenizer, str_to_list_ipa_all
+from x_voice.train.datasets.ipa_v3_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizerV3
+from x_voice.train.datasets.ipa_v6_tokenizer import PhonemizeTextTokenizer as PhonemizeTextTokenizerV6
+
+try:
+    from fastlid import fastlid
+except ImportError:
+    fastlid = None
 
 
 _ref_audio_cache = {}
@@ -840,3 +852,434 @@ def audio_post_processing(mel, threshold=2.8, limit=3.5, start_bin=60):
         )
     mel[:, :, start_bin:] = apply_limit(mel_high, threshold, limit)
     return mel
+
+
+_LANGDETECT_WARNED = False
+
+
+def normalize_lang_code(lang_code):
+    if not lang_code:
+        return None
+    return lang_code.strip().lower().replace("_", "-").split("-", 1)[0]
+
+
+def parse_voice_lang_tag(tag_content, voice_names=None, default_voice="main"):
+    tag_content = tag_content.strip()
+    if not tag_content:
+        return default_voice, None
+
+    if "|" in tag_content:
+        voice_name, segment_lang = tag_content.split("|", 1)
+        return voice_name.strip() or default_voice, normalize_lang_code(segment_lang)
+
+    lower_tag = tag_content.lower()
+    if lower_tag.startswith("lang:"):
+        return default_voice, normalize_lang_code(tag_content.split(":", 1)[1])
+    if lower_tag.startswith("lang="):
+        return default_voice, normalize_lang_code(tag_content.split("=", 1)[1])
+
+    if voice_names is not None and tag_content in voice_names:
+        return tag_content, None
+
+    normalized_lang = normalize_lang_code(tag_content)
+    if normalized_lang and re.fullmatch(r"[a-z]{2,3}", normalized_lang):
+        return default_voice, normalized_lang
+
+    return tag_content, None
+
+
+def detect_segment_lang(text, fallback_lang):
+    global _LANGDETECT_WARNED
+
+    if fastlid is None:
+        if not _LANGDETECT_WARNED:
+            print("Warning: fastlid is not installed, automatic language detection is disabled.")
+            _LANGDETECT_WARNED = True
+        return fallback_lang
+
+    text = text.strip()
+    if len(text) < 3:
+        return fallback_lang
+
+    try:
+        return normalize_lang_code(fastlid(text)[0]) or fallback_lang
+    except Exception as exc:
+        print(f"Warning: failed to detect language for text '{text}': {exc}")
+        return fallback_lang
+
+
+def resolve_package_example(path):
+    if path and "infer/examples/" in path:
+        return str(files("x_voice").joinpath(path))
+    return path
+
+
+def resolve_cached_path(path):
+    if path and path.startswith("hf://"):
+        return str(cached_path(path))
+    return path
+
+
+def resolve_ckpt_path(ckpt_file, model_cfg, model, ckpt_step):
+    if ckpt_file:
+        return resolve_cached_path(ckpt_file)
+
+    rel_root = Path(str(files("x_voice").joinpath("../.."))).resolve()
+    candidates = []
+    if ckpt_step is not None:
+        candidates.extend(
+            [
+                rel_root / "ckpts" / model / f"model_{ckpt_step}.pt",
+                rel_root / "ckpts" / model / f"model_{ckpt_step}.safetensors",
+            ]
+        )
+        save_dir = OmegaConf.select(model_cfg, "ckpts.save_dir", default=None)
+        if save_dir:
+            candidates.extend(
+                [
+                    rel_root / save_dir / f"model_{ckpt_step}.pt",
+                    rel_root / save_dir / f"model_{ckpt_step}.safetensors",
+                ]
+            )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    raise ValueError("ckpt_file is required when no local checkpoint can be resolved.")
+
+
+def get_ipa_tokenizer_cache(tokenizer_name, with_stress):
+    tokenizer_class_map = {
+        "ipa_v3": PhonemizeTextTokenizerV3,
+        "ipa_v6": PhonemizeTextTokenizerV6,
+    }
+    cache = {}
+
+    def get_tokenizer_for_lang(lang):
+        if not tokenizer_name.startswith("ipa"):
+            return None
+        if tokenizer_name not in tokenizer_class_map:
+            raise ValueError(f"Unsupported IPA tokenizer: {tokenizer_name}")
+        if lang not in cache:
+            cache[lang] = tokenizer_class_map[tokenizer_name](
+                language=get_ipa_id(lang),
+                with_stress=with_stress,
+            )
+        return cache[lang]
+
+    return get_tokenizer_for_lang
+
+
+def normalize_text_for_lang(text, lang, normalizer_cache):
+    try:
+        from x_voice.eval.text_normalizer import TextNormalizer
+    except ImportError:
+        print("Warning: TextNormalizer is unavailable, skip text normalization.")
+        return text
+
+    if lang not in normalizer_cache:
+        normalizer_cache[lang] = TextNormalizer(language=lang)
+    return normalizer_cache[lang].normalize(text)
+
+
+def prepare_text_tokens(text, tokenizer_name, lang, ipa_tokenizer_getter):
+    if tokenizer_name == "pinyin":
+        return convert_char_to_pinyin([text], polyphone=True)[0]
+    if tokenizer_name.startswith("ipa"):
+        ipa_tokenizer = ipa_tokenizer_getter(lang)
+        ipa_text = ipa_tokenizer(text)
+        return str_to_list_ipa_all(ipa_text, tokenizer_name, lang)
+    return list(text)
+
+
+def ensure_ref_text_punctuation(ref_text):
+    if not ref_text:
+        return ref_text
+    if not ref_text.endswith(". ") and not ref_text.endswith("。"):
+        if ref_text.endswith("."):
+            ref_text += " "
+        else:
+            ref_text += ". "
+    return ref_text
+
+
+def count_units(text, lang):
+    units = count_syllables(text, lang)
+    return max(units, 1)
+
+
+def chunk_text_by_units(text, lang, max_units):
+    chunks = []
+    current_chunk = ""
+    sentences = re.split(r"(?<=[;:,.!?])\s+|(?<=[；：，。！？])", text)
+
+    for sentence in sentences:
+        if not sentence:
+            continue
+        if count_units(current_chunk, lang) + count_units(sentence, lang) <= max_units:
+            current_chunk += sentence + " " if len(sentence[-1].encode("utf-8")) == 1 else sentence
+        else:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = sentence + " " if len(sentence[-1].encode("utf-8")) == 1 else sentence
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    return chunks or [text.strip()]
+
+
+def chunk_text_by_chars(text, max_chars=135):
+    chunks = []
+    current_chunk = ""
+    sentences = re.split(r"(?<=[;:,.!?])\s+|(?<=[；：，。！？])", text)
+
+    for sentence in sentences:
+        if not sentence:
+            continue
+        if len(current_chunk.encode("utf-8")) + len(sentence.encode("utf-8")) <= max_chars:
+            current_chunk += sentence + " " if len(sentence[-1].encode("utf-8")) == 1 else sentence
+        else:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = sentence + " " if len(sentence[-1].encode("utf-8")) == 1 else sentence
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    return chunks or [text.strip()]
+
+
+def prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name):
+    audio, sr = torchaudio.load(ref_audio)
+    if denoise_ref:
+        audio, sr = denoise_ref_audio(audio, sr)
+    if audio.shape[0] > 1:
+        audio = torch.mean(audio, dim=0, keepdim=True)
+
+    rms = torch.sqrt(torch.mean(torch.square(audio)))
+    if rms < target_rms_value:
+        audio = audio * target_rms_value / rms
+    if sr != target_sample_rate:
+        resampler = torchaudio.transforms.Resample(sr, target_sample_rate)
+        audio = resampler(audio)
+    return audio.to(device_name), rms
+
+
+def predict_ref_speed(srp_model, audio):
+    if srp_model is None:
+        return None
+    with torch.inference_mode():
+        return srp_model.predict_speed(audio=audio).item()
+
+
+def estimate_duration(
+    ref_audio_len,
+    ref_text,
+    gen_text,
+    ref_lang,
+    gen_lang,
+    sp_type,
+    local_speed,
+    fix_duration_value,
+    predicted_speed,
+):
+    if fix_duration_value is not None:
+        return int(fix_duration_value * target_sample_rate / hop_length)
+
+    if sp_type == "pretrained":
+        if predicted_speed is None:
+            raise ValueError("sp_type='pretrained' requires srp_ckpt_file and a loaded SRP model.")
+        gen_seconds = count_units(gen_text, gen_lang) / max(predicted_speed, 0.1) / local_speed
+        return ref_audio_len + int(gen_seconds * target_sample_rate / hop_length)
+
+    if sp_type == "syllable":
+        ref_units = count_units(ref_text, ref_lang)
+        gen_units = count_units(gen_text, gen_lang)
+        return ref_audio_len + int(ref_audio_len / ref_units * gen_units / local_speed)
+
+    ref_text_len = max(len(ref_text.encode("utf-8")), 1)
+    gen_text_len = max(len(gen_text.encode("utf-8")), 1)
+    return ref_audio_len + int(ref_audio_len / ref_text_len * gen_text_len / local_speed)
+
+
+def lang_to_id(lang, lang_to_id_map):
+    unknown_id = len(lang_to_id_map)
+    return lang_to_id_map.get(lang, unknown_id)
+
+
+def load_srp_model(srp_model_cfg_file, srp_ckpt_file, device_name):
+    srp_ckpt_file = resolve_cached_path(srp_ckpt_file)
+    srp_cfg = OmegaConf.load(srp_model_cfg_file)
+    srp_arch = OmegaConf.to_container(srp_cfg.model.arch, resolve=True)
+    srp_mel_spec_kwargs = OmegaConf.to_container(srp_cfg.model.mel_spec, resolve=True)
+    srp_model = SpeedPredictor(
+        mel_spec_kwargs=srp_mel_spec_kwargs,
+        loss_type=srp_cfg.model.get("loss", "CE"),
+        arch_kwargs=srp_arch,
+        sigma_factor=srp_cfg.model.get("gce_sigma", 2),
+        silence_prob=srp_cfg.model.get("silence_prob", 0.0),
+        silence_ratio_min=srp_cfg.model.get("silence_ratio_min", 0.2),
+        silence_ratio_max=srp_cfg.model.get("silence_ratio_max", 0.8),
+    ).to(device_name)
+    return load_checkpoint(srp_model, srp_ckpt_file, device_name, dtype=torch.float32, use_ema=True)
+
+
+def infer_xvoice_process(
+    ref_audio,
+    ref_text,
+    gen_text,
+    ref_lang,
+    gen_lang,
+    tokenizer_name,
+    ipa_tokenizer_getter,
+    model_obj,
+    vocoder,
+    lang_to_id_map,
+    srp_model=None,
+    mel_spec_type_value=mel_spec_type,
+    progress=tqdm,
+    target_rms_value=target_rms,
+    cross_fade_duration_value=cross_fade_duration,
+    nfe_step_value=nfe_step,
+    cfg_strength_value=cfg_strength,
+    cfg_strength2_value=4.0,
+    cfg_schedule_value=None,
+    cfg_decay_time_value=0.6,
+    sway_sampling_coef_value=sway_sampling_coef,
+    local_speed=speed,
+    fix_duration_value=fix_duration,
+    sp_type="syllable",
+    reverse=False,
+    denoise_ref=False,
+    loudness_norm=False,
+    post_processing=False,
+    device_name=device,
+):
+    audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
+    ref_audio_len = audio.shape[-1] // hop_length
+    predicted_speed = predict_ref_speed(srp_model, audio)
+
+    if sp_type in {"syllable", "pretrained"}:
+        if sp_type == "pretrained" and predicted_speed:
+            max_units = max(int(predicted_speed * (22 - audio.shape[-1] / target_sample_rate)), 1)
+        else:
+            max_units = max(
+                int(count_units(ref_text, ref_lang) / (audio.shape[-1] / target_sample_rate) * 18 * local_speed),
+                1,
+            )
+        gen_text_batches = chunk_text_by_units(gen_text, gen_lang, max_units)
+    else:
+        max_chars = int(
+            len(ref_text.encode("utf-8")) / (audio.shape[-1] / target_sample_rate) * 18 * local_speed
+        )
+        gen_text_batches = chunk_text_by_chars(gen_text, max_chars=max(max_chars, 1))
+
+    for i, batch_text in enumerate(gen_text_batches):
+        print(f"gen_text {i}", batch_text)
+    print("\n")
+    print(f"Generating audio in {len(gen_text_batches)} batches...")
+
+    generated_waves = []
+    spectrograms = []
+
+    def process_batch(batch_text):
+        local_batch_speed = local_speed
+        if count_units(batch_text, gen_lang) < 4:
+            local_batch_speed = min(local_batch_speed, 0.5)
+
+        ref_tokens = prepare_text_tokens(ref_text, tokenizer_name, ref_lang, ipa_tokenizer_getter)
+        gen_tokens = prepare_text_tokens(batch_text, tokenizer_name, gen_lang, ipa_tokenizer_getter)
+        final_text_list = [ref_tokens + gen_tokens]
+
+        ref_lang_id = lang_to_id(ref_lang, lang_to_id_map)
+        gen_lang_id = lang_to_id(gen_lang, lang_to_id_map)
+        language_ids = torch.tensor(
+            [[ref_lang_id] * len(ref_tokens) + [gen_lang_id] * len(gen_tokens)],
+            dtype=torch.long,
+            device=device_name,
+        )
+
+        duration = estimate_duration(
+            ref_audio_len,
+            ref_text,
+            batch_text,
+            ref_lang,
+            gen_lang,
+            sp_type,
+            local_batch_speed,
+            fix_duration_value,
+            predicted_speed,
+        )
+
+        with torch.inference_mode():
+            generated, _ = model_obj.sample(
+                cond=audio,
+                text=final_text_list,
+                duration=duration,
+                steps=nfe_step_value,
+                cfg_strength=cfg_strength_value,
+                sway_sampling_coef=sway_sampling_coef_value,
+                language_ids=language_ids,
+                cfg_schedule=cfg_schedule_value,
+                cfg_decay_time=cfg_decay_time_value,
+                reverse=reverse,
+                layered=True,
+                cfg_strength2=cfg_strength2_value,
+                infer_mode=True,
+            )
+
+            if post_processing:
+                generated = audio_post_processing(generated, threshold=2.5, limit=3.5)
+
+            generated = generated.to(torch.float32)
+            if reverse:
+                generated = generated[:, : duration - ref_audio_len, :]
+            else:
+                generated = generated[:, ref_audio_len:duration, :]
+
+            generated_mel_spec = generated.permute(0, 2, 1)
+            if mel_spec_type_value == "vocos":
+                generated_wave = vocoder.decode(generated_mel_spec).cpu()
+            elif mel_spec_type_value == "bigvgan":
+                generated_wave = vocoder(generated_mel_spec).cpu()
+            else:
+                raise ValueError(f"Unsupported vocoder: {mel_spec_type_value}")
+
+            if rms < target_rms_value:
+                generated_wave = generated_wave * rms / target_rms_value
+            if loudness_norm:
+                generated_wave = normalize_audio_loudness(generated_wave, target_sample_rate, target_lufs=-23.0)
+
+            return generated_wave.squeeze().numpy(), generated_mel_spec[0].cpu().numpy()
+
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process_batch, batch_text) for batch_text in gen_text_batches]
+        for future in progress.tqdm(futures) if progress is not None else futures:
+            generated_wave, generated_mel_spec = future.result()
+            generated_waves.append(generated_wave)
+            spectrograms.append(generated_mel_spec)
+
+    if not generated_waves:
+        return None, target_sample_rate, None
+
+    if cross_fade_duration_value <= 0:
+        final_wave = np.concatenate(generated_waves)
+    else:
+        final_wave = generated_waves[0]
+        for next_wave in generated_waves[1:]:
+            cross_fade_samples = int(cross_fade_duration_value * target_sample_rate)
+            cross_fade_samples = min(cross_fade_samples, len(final_wave), len(next_wave))
+            if cross_fade_samples <= 0:
+                final_wave = np.concatenate([final_wave, next_wave])
+                continue
+            prev_overlap = final_wave[-cross_fade_samples:]
+            next_overlap = next_wave[:cross_fade_samples]
+            fade_out = np.linspace(1, 0, cross_fade_samples)
+            fade_in = np.linspace(0, 1, cross_fade_samples)
+            cross_faded_overlap = prev_overlap * fade_out + next_overlap * fade_in
+            final_wave = np.concatenate(
+                [final_wave[:-cross_fade_samples], cross_faded_overlap, next_wave[cross_fade_samples:]]
+            )
+
+    combined_spectrogram = np.concatenate(spectrograms, axis=1)
+    return final_wave, target_sample_rate, combined_spectrogram

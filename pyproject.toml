@@ -75,7 +75,7 @@ eval = [
     "funasr",
     "jiwer",
     "modelscope",
-    "pyloudnorm"
+    "pyloudnorm",
     "zhconv",
     "zhon",
 ]
