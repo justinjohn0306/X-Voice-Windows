@@ -81,7 +81,6 @@ parser.add_argument("--sway_sampling_coef", type=float, help=f"Sway sampling coe
 parser.add_argument("--speed", type=float, help=f"Speed multiplier, default {speed}.")
 parser.add_argument("--fix_duration", type=float, help=f"Fixed total duration in seconds, default {fix_duration}.")
 parser.add_argument("--device", type=str, help="Device to run on.")
-parser.add_argument("--lang", type=str, help="Fallback language code.")
 parser.add_argument("--ref_lang", type=str, help="Reference text language code.")
 parser.add_argument("--gen_lang", type=str, help="Generated text language code.")
 parser.add_argument("--tokenizer", type=str, help="Override tokenizer from model yaml.")
@@ -155,9 +154,12 @@ sway_sampling_coef = args.sway_sampling_coef or config.get("sway_sampling_coef",
 speed = args.speed or config.get("speed", speed)
 fix_duration = args.fix_duration or config.get("fix_duration", fix_duration)
 device = args.device or config.get("device", device)
-lang = normalize_lang_code(args.lang or config.get("lang", "en"))
-ref_lang = normalize_lang_code(args.ref_lang or config.get("ref_lang", lang))
-gen_lang = normalize_lang_code(args.gen_lang or config.get("gen_lang", lang))
+ref_lang = normalize_lang_code(args.ref_lang or config.get("ref_lang"))
+gen_lang = normalize_lang_code(args.gen_lang or config.get("gen_lang"))
+if not ref_lang:
+    raise ValueError("ref_lang is required in config or CLI.")
+if not gen_lang:
+    raise ValueError("gen_lang is required in config or CLI.")
 sp_type = args.sp_type or config.get("sp_type", "syllable")
 srp_ckpt_file = args.srp_ckpt_file or config.get("srp_ckpt_file", "")
 srp_model_cfg_file = args.srp_model_cfg or config.get("srp_model_cfg", DEFAULT_SRP_CFG)
@@ -269,8 +271,10 @@ def main():
         voice_ref_lang = normalize_lang_code(voices[voice].get("ref_lang", ref_lang))
         voice_ref_text = voices[voice].get("ref_text", "")
         if auto_detect_lang and not voice_ref_lang:
-            voice_ref_lang = detect_segment_lang(voice_ref_text, lang)
-        voices[voice]["ref_lang"] = voice_ref_lang or lang
+            voice_ref_lang = detect_segment_lang(voice_ref_text, ref_lang)
+        if not voice_ref_lang:
+            raise ValueError(f"ref_lang is required for voice '{voice}'.")
+        voices[voice]["ref_lang"] = voice_ref_lang
         voices[voice]["ref_audio"], voices[voice]["ref_text"] = preprocess_ref_audio_text(
             voices[voice]["ref_audio"],
             voice_ref_text,
@@ -315,10 +319,12 @@ def main():
         if segment_gen_lang is None:
             segment_gen_lang = normalize_lang_code(voices[voice].get("gen_lang", gen_lang))
         if auto_detect_lang:
-            segment_ref_lang = detect_segment_lang(ref_text_, segment_ref_lang or lang)
-            segment_gen_lang = detect_segment_lang(gen_text_, segment_gen_lang or lang)
-        segment_ref_lang = segment_ref_lang or lang
-        segment_gen_lang = segment_gen_lang or lang
+            segment_ref_lang = detect_segment_lang(ref_text_, segment_ref_lang)
+            segment_gen_lang = detect_segment_lang(gen_text_, segment_gen_lang)
+        if not segment_ref_lang:
+            raise ValueError(f"ref_lang is required for voice '{voice}'.")
+        if not segment_gen_lang:
+            raise ValueError(f"gen_lang is required for voice '{voice}'.")
 
         if normalize_text:
             ref_text_ = normalize_text_for_lang(ref_text_, segment_ref_lang, normalizer_cache)

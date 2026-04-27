@@ -3,7 +3,7 @@
 
 model = "XVoice_Base_Stage1"
 model_cfg = ""
-ckpt_file = "ckpts/stage1_model_500000.safetensors1"
+ckpt_file = "ckpts/stage1_model_500000.safetensors"
 vocab_file = ""
 
 ref_audio = "infer/examples/basic/basic_ref_en.wav"
@@ -11,10 +11,9 @@ ref_text = "Some call me nature, others call me mother nature."
 gen_text = "I don't really care what you call me. I've been a silent spectator, watching species evolve, empires rise and fall. But always remember, I am mighty and enduring."
 gen_file = ""
 
-lang = "en"
-ref_lang = "en"
-gen_lang = "en"
-auto_detect_lang = false
+ref_lang = ""
+gen_lang = ""
+auto_detect_lang = true
 normalize_text = true
 
 sp_type = "syllable"
