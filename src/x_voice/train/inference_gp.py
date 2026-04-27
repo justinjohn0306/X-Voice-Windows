@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(str(files("x_voice").joinpath("../.."))).resolve()
 os.chdir(str(PROJECT_ROOT))  # change working directory to root of project (local editable)
 
 
-@hydra.main(version_base="1.3", config_path=str(files("x_voice").joinpath("configs")), config_name="F5TTS_v1_Base_multilingual_full_catada_stress_qyl_test_infer")
+@hydra.main(version_base="1.3", config_path=str(files("x_voice").joinpath("configs")), config_name=None)
 def main(inference_cfg):
     cfg = OmegaConf.load(str(files("x_voice").joinpath(f"configs/{inference_cfg.source.expname}.yaml")))
     model_cls = hydra.utils.get_class(f"x_voice.model.{cfg.model.backbone}")

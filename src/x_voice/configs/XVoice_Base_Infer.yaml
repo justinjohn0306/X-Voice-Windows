@@ -15,3 +15,7 @@ infer:
   sway_sampling_coef: -1.0
   gen_root: null # Output root for generated results; null disables saving.
   save_wav: False # Whether to save generated wav files.
+
+attn:
+  attn_backend: flash_attn # flash_attn | torch
+  attn_mask_enabled: True # True | False

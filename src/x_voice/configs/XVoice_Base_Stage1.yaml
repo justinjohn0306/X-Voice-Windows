@@ -19,7 +19,7 @@ optim:
   bnb_optimizer: False  # use bnb 8bit AdamW optimizer or not
 
 model:
-  name: XVoice_v1_Base_Stage1  # model name
+  name: XVoice_Base_Stage1  # model name
   tokenizer: ipa_v6  # tokenizer type
   tokenizer_path: null  # if 'custom' tokenizer, define the path want to use (should be vocab.txt)
   backbone: DiT
@@ -60,11 +60,11 @@ model:
     local_path: my_vocoder/vocos-mel-24khz  # local vocoder path
 
 ckpts:
-  logger: tensorboard  # wandb | tensorboard | null
+  logger: wandb  # wandb | tensorboard | null
   log_samples: True  # infer random sample per save checkpoint. wip, normal to fail with extra long samples
-  save_per_updates: 10000  # save checkpoint per updates
+  save_per_updates: 5000  # save checkpoint per updates
   keep_last_n_checkpoints: -1  # -1 to keep all, 0 to not save intermediate, > 0 to keep last N checkpoints
-  last_per_updates: 10000  # save last checkpoint per updates
+  last_per_updates: 50000  # save last checkpoint per updates
   save_dir: ckpts/${model.name}_${model.mel_spec.mel_spec_type}_${model.tokenizer}_${datasets.name}
   pretrained_path: ckpts/XVoice_v1_Base_Emilia_pinyin/model_1250000.safetensors
   freeze_update: 10000

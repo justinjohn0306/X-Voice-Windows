@@ -1,28 +1,26 @@
-# Basic X-Voice inference config.
-# Update ckpt_file to the actual Stage1 checkpoint path before running.
+# Basic X-Voice Stage2 drop-text inference config.
+# Update ckpt_file and srp_ckpt_file to real local checkpoints before running.
 
-model = "XVoice_v1_Base_Stage1"
+model = "XVoice_v1_Base_Stage2"
 model_cfg = ""
-ckpt_file = "ckpts/XVoice_v1_Base_Stage1_vocos_ipa_v6_multilingual_stage1/model_600000.pt"
+ckpt_file = "ckpts/XVoice_v1_Base_Stage2_vocos_ipa_v6_XVoice_Dataset/model_70000.pt"
 vocab_file = ""
 
+srp_ckpt_file = "ckpts/SpeedPredict_Multilingual/model_28000.pt"
+srp_model_cfg = ""
+
 ref_audio = "infer/examples/basic/basic_ref_en.wav"
-ref_text = "Some call me nature, others call me mother nature."
+ref_text = ""
 gen_text = "I don't really care what you call me. I've been a silent spectator, watching species evolve, empires rise and fall. But always remember, I am mighty and enduring."
 gen_file = ""
 
 lang = "en"
-ref_lang = "en"
 gen_lang = "en"
 auto_detect_lang = false
 normalize_text = true
 
-sp_type = "syllable"
-srp_ckpt_file = ""
-srp_model_cfg = ""
-
 output_dir = "tests"
-output_file = "infer_cli_basic.wav"
+output_file = "infer_cli_droptext_basic.wav"
 save_chunk = false
 remove_silence = false
 

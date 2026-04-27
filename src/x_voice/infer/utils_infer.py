@@ -1283,3 +1283,143 @@ def infer_xvoice_process(
 
     combined_spectrogram = np.concatenate(spectrograms, axis=1)
     return final_wave, target_sample_rate, combined_spectrogram
+
+
+def infer_xvoice_droptext_process(
+    ref_audio,
+    gen_text,
+    gen_lang,
+    tokenizer_name,
+    ipa_tokenizer_getter,
+    model_obj,
+    vocoder,
+    lang_to_id_map,
+    srp_model,
+    mel_spec_type_value=mel_spec_type,
+    progress=tqdm,
+    target_rms_value=target_rms,
+    cross_fade_duration_value=cross_fade_duration,
+    nfe_step_value=nfe_step,
+    cfg_strength_value=cfg_strength,
+    cfg_strength2_value=4.0,
+    cfg_schedule_value="square",
+    cfg_decay_time_value=0.6,
+    sway_sampling_coef_value=sway_sampling_coef,
+    local_speed=speed,
+    fix_duration_value=fix_duration,
+    reverse=False,
+    denoise_ref=False,
+    loudness_norm=False,
+    post_processing=False,
+    device_name=device,
+):
+    if srp_model is None:
+        raise ValueError("drop-text inference requires a loaded SRP model.")
+
+    audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
+    ref_audio_len = audio.shape[-1] // hop_length
+    prompt_seconds = audio.shape[-1] / target_sample_rate
+    predicted_speed = predict_ref_speed(srp_model, audio)
+    if predicted_speed is None:
+        raise ValueError("drop-text inference requires SRP speed prediction.")
+
+    max_units = max(int(predicted_speed * max(22 - prompt_seconds, 1)), 1)
+    gen_text_batches = chunk_text_by_units(gen_text, gen_lang, max_units)
+
+    for i, batch_text in enumerate(gen_text_batches):
+        print(f"gen_text {i}", batch_text)
+    print("\n")
+    print(f"Generating audio in {len(gen_text_batches)} batches...")
+
+    generated_waves = []
+    spectrograms = []
+    gen_lang_id = lang_to_id(gen_lang, lang_to_id_map)
+
+    def process_batch(batch_text):
+        local_batch_speed = local_speed
+        if count_units(batch_text, gen_lang) < 4:
+            local_batch_speed = min(local_batch_speed, 0.5)
+
+        gen_tokens = prepare_text_tokens(batch_text, tokenizer_name, gen_lang, ipa_tokenizer_getter)
+        final_text_list = [gen_tokens]
+
+        if fix_duration_value is not None:
+            duration = int(fix_duration_value * target_sample_rate / hop_length)
+        else:
+            gen_seconds = count_units(batch_text, gen_lang) / max(predicted_speed, 0.1) / local_batch_speed
+            duration = ref_audio_len + int(gen_seconds * target_sample_rate / hop_length)
+
+        language_ids = torch.tensor([gen_lang_id], dtype=torch.long, device=device_name)
+
+        with torch.inference_mode():
+            generated, _ = model_obj.sample(
+                cond=audio,
+                text=final_text_list,
+                duration=duration,
+                steps=nfe_step_value,
+                cfg_strength=cfg_strength_value,
+                sway_sampling_coef=sway_sampling_coef_value,
+                language_ids=language_ids,
+                cfg_schedule=cfg_schedule_value,
+                cfg_decay_time=cfg_decay_time_value,
+                reverse=reverse,
+                layered=True,
+                cfg_strength2=cfg_strength2_value,
+                infer_mode=True,
+            )
+
+            if post_processing:
+                generated = audio_post_processing(generated, threshold=2.5, limit=3.5)
+
+            generated = generated.to(torch.float32)
+            if reverse:
+                generated = generated[:, : duration - ref_audio_len, :]
+            else:
+                generated = generated[:, ref_audio_len:duration, :]
+
+            generated_mel_spec = generated.permute(0, 2, 1)
+            if mel_spec_type_value == "vocos":
+                generated_wave = vocoder.decode(generated_mel_spec).cpu()
+            elif mel_spec_type_value == "bigvgan":
+                generated_wave = vocoder(generated_mel_spec).cpu()
+            else:
+                raise ValueError(f"Unsupported vocoder: {mel_spec_type_value}")
+
+            if rms < target_rms_value:
+                generated_wave = generated_wave * rms / target_rms_value
+            if loudness_norm:
+                generated_wave = normalize_audio_loudness(generated_wave, target_sample_rate, target_lufs=-23.0)
+
+            return generated_wave.squeeze().numpy(), generated_mel_spec[0].cpu().numpy()
+
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process_batch, batch_text) for batch_text in gen_text_batches]
+        for future in progress.tqdm(futures) if progress is not None else futures:
+            generated_wave, generated_mel_spec = future.result()
+            generated_waves.append(generated_wave)
+            spectrograms.append(generated_mel_spec)
+
+    if not generated_waves:
+        return None, target_sample_rate, None
+
+    if cross_fade_duration_value <= 0:
+        final_wave = np.concatenate(generated_waves)
+    else:
+        final_wave = generated_waves[0]
+        for next_wave in generated_waves[1:]:
+            cross_fade_samples = int(cross_fade_duration_value * target_sample_rate)
+            cross_fade_samples = min(cross_fade_samples, len(final_wave), len(next_wave))
+            if cross_fade_samples <= 0:
+                final_wave = np.concatenate([final_wave, next_wave])
+                continue
+            prev_overlap = final_wave[-cross_fade_samples:]
+            next_overlap = next_wave[:cross_fade_samples]
+            fade_out = np.linspace(1, 0, cross_fade_samples)
+            fade_in = np.linspace(0, 1, cross_fade_samples)
+            cross_faded_overlap = prev_overlap * fade_out + next_overlap * fade_in
+            final_wave = np.concatenate(
+                [final_wave[:-cross_fade_samples], cross_faded_overlap, next_wave[cross_fade_samples:]]
+            )
+
+    combined_spectrogram = np.concatenate(spectrograms, axis=1)
+    return final_wave, target_sample_rate, combined_spectrogram
