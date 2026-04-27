@@ -382,3 +382,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python -m x_voice.infer.infer_gradio --host 0.0.0.0 --port 7860
