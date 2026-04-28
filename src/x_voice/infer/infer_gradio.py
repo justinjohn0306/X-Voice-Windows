@@ -461,7 +461,6 @@ def translate_and_clone(
     ref_audio,
     ref_text,
     ref_language_choice,
-    text_to_translate,
     target_language_choices,
     show_info=gr.Info,
 ):
@@ -496,10 +495,9 @@ def translate_and_clone(
         if not target_langs:
             raise ValueError("Please select at least one target language different from the reference language.")
 
-        source_text = text_to_translate.strip() if text_to_translate and text_to_translate.strip() else ref_text
-        source_text = source_text.strip()
+        source_text = ref_text.strip()
         if not source_text:
-            raise ValueError("Text to translate is empty.")
+            raise ValueError("Reference text is empty.")
 
         results_state = {}
         table_rows = []
@@ -742,11 +740,6 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     allow_custom_value=True,
                     label="Reference Language",
                 )
-                translate_text_input = gr.Textbox(
-                    label="Text to Translate",
-                    lines=5,
-                    placeholder="Optional. Leave empty to translate the reference text.",
-                )
                 target_languages_input = gr.CheckboxGroup(
                     choices=LANGUAGE_CHOICES,
                     label="Target Languages",
@@ -754,6 +747,18 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                 with gr.Row():
                     select_all_targets_btn = gr.Button("Generate All Languages")
                     translate_clone_btn = gr.Button("Translate & Clone", variant="primary")
+                gr.Examples(
+                    examples=[
+                        [EXAMPLE_REF_EN, "Some call me nature, others call me mother nature.", "English(en)"],
+                        [EXAMPLE_REF_ZH, "对，这就是我，万人敬仰的太乙真人。", "Mandarin(zh)"],
+                    ],
+                    inputs=[
+                        translate_ref_audio_input,
+                        translate_ref_text_input,
+                        translate_ref_language_input,
+                    ],
+                    label="Example Prompts",
+                )
 
             with gr.Column(scale=1):
                 translate_results_table = gr.Dataframe(
@@ -826,7 +831,6 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
             translate_ref_audio_input,
             translate_ref_text_input,
             translate_ref_language_input,
-            translate_text_input,
             target_languages_input,
         ],
         outputs=[
