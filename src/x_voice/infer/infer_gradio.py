@@ -39,6 +39,7 @@ def _silence_inference_logs():
 _silence_inference_logs()
 
 from x_voice.infer.utils_infer import (
+    auto_split_mixed_text,
     detect_segment_lang,
     device,
     ensure_ref_text_punctuation,
@@ -210,6 +211,20 @@ def normalize_required_text(text, lang):
     return normalize_text_for_lang(text, lang, normalizer_cache) if NORMALIZE_TEXT else text
 
 
+def build_gen_text_spans(gen_text):
+    spans = auto_split_mixed_text(gen_text.strip(), detect_segment_lang(gen_text, None))
+    if NORMALIZE_TEXT:
+        spans = [
+            (lang, normalize_text_for_lang(span_text, lang, normalizer_cache))
+            for lang, span_text in spans
+        ]
+    full_text = "".join(span_text for _, span_text in spans)
+    display_lang = detect_segment_lang(full_text, spans[0][0] if spans else None)
+    if not display_lang:
+        raise ValueError("Failed to detect generated text language. Please check fastlid installation and input text.")
+    return full_text, spans, display_lang
+
+
 def preprocess_stage1_ref(ref_audio, ref_text, show_info=gr.Info):
     processed_audio, processed_text = preprocess_ref_audio_text(ref_audio, ref_text.strip(), show_info=show_info)
     ref_lang = detect_required_lang(processed_text, "reference text")
@@ -241,16 +256,15 @@ def infer(ref_audio, ref_text, gen_text, model_choice, show_info=gr.Info):
         if model_choice == STAGE1_MODEL:
             runtime = get_stage1_runtime(show_info=show_info)
             ref_audio, ref_text, ref_lang = preprocess_stage1_ref(ref_audio, ref_text, show_info=show_info)
-            gen_lang = detect_required_lang(gen_text, "generated text")
-            gen_text = normalize_required_text(gen_text.strip(), gen_lang)
+            gen_text, gen_lang_spans, display_gen_lang = build_gen_text_spans(gen_text)
 
-            show_info(f"Detected languages: ref={ref_lang}, gen={gen_lang}")
+            show_info(f"Detected languages: ref={ref_lang}, gen={display_gen_lang}")
             final_wave, final_sample_rate, _ = infer_xvoice_process(
                 ref_audio,
                 ref_text,
                 gen_text,
                 ref_lang,
-                gen_lang,
+                gen_lang_spans,
                 runtime["tokenizer"],
                 runtime["ipa_tokenizer_getter"],
                 runtime["model"],
@@ -281,14 +295,13 @@ def infer(ref_audio, ref_text, gen_text, model_choice, show_info=gr.Info):
         runtime = get_stage2_runtime(show_info=show_info)
         duration_model = get_srp_model(show_info=show_info)
         ref_audio = preprocess_stage2_ref(ref_audio, show_info=show_info)
-        gen_lang = detect_required_lang(gen_text, "generated text")
-        gen_text = normalize_required_text(gen_text.strip(), gen_lang)
+        gen_text, gen_lang_spans, display_gen_lang = build_gen_text_spans(gen_text)
 
-        show_info(f"Detected language: gen={gen_lang}")
+        show_info(f"Detected language: gen={display_gen_lang}")
         final_wave, final_sample_rate, _ = infer_xvoice_droptext_process(
             ref_audio,
             gen_text,
-            gen_lang,
+            gen_lang_spans,
             runtime["tokenizer"],
             runtime["ipa_tokenizer_getter"],
             runtime["model"],
