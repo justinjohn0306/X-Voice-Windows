@@ -1032,6 +1032,7 @@ def infer_xvoice_process(
     cross_fade_duration_value=cross_fade_duration,
     nfe_step_value=nfe_step,
     cfg_strength_value=cfg_strength,
+    layered=layered,
     cfg_strength2_value=4.0,
     cfg_schedule_value=None,
     cfg_decay_time_value=0.6,

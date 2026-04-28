@@ -32,6 +32,7 @@ target_rms = 0.1
 cross_fade_duration = 0.15
 nfe_step = 32
 cfg_strength = 2.5
+layered = true
 cfg_strength2 = 4.0
 cfg_schedule = "square"
 cfg_decay_time = 0.6
