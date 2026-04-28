@@ -78,6 +78,7 @@ STAGE2_MODEL = "X-Voice Stage2"
 STAGE2_REF_TEXT = "X-Voice Stage2 does not need reference text."
 TEXT_MODE_AUTO = "Auto Detect"
 TEXT_MODE_CODESWITCH = "Manual Code-Switch"
+DOMINANT_LANG_AUTO = "Auto Detect"
 
 HF_REPO_ID = "XRXRX/X-Voice"
 STAGE1_CKPT = "XVoice_Base_Stage1/model_600000.safetensors"
@@ -141,6 +142,7 @@ LANGUAGE_OPTIONS = [
     ("Mandarin", "zh"),
 ]
 LANGUAGE_CHOICES = [f"{name}({code})" for name, code in LANGUAGE_OPTIONS]
+DOMINANT_LANGUAGE_CHOICES = [DOMINANT_LANG_AUTO] + LANGUAGE_CHOICES
 LANGUAGE_CODES = {code for _, code in LANGUAGE_OPTIONS}
 CODE_SWITCH_SAMPLE = [
     ("English(en)", "I was planning to go out for dinner, but"),
@@ -278,7 +280,13 @@ def parse_language_choice(language_choice):
     return lang
 
 
-def build_manual_gen_text_spans(segment_values):
+def parse_dominant_language_choice(language_choice):
+    if not language_choice or language_choice == DOMINANT_LANG_AUTO:
+        return None
+    return parse_language_choice(language_choice)
+
+
+def build_manual_gen_text_spans(dominant_language_choice, segment_values):
     spans = []
     for idx in range(0, len(segment_values), 2):
         language_choice = segment_values[idx]
@@ -295,16 +303,18 @@ def build_manual_gen_text_spans(segment_values):
         raise ValueError("Please enter at least one code-switch segment.")
 
     full_text = "".join(span_text for _, span_text in spans)
-    display_lang = detect_segment_lang(full_text, spans[0][0])
+    dominant_lang = parse_dominant_language_choice(dominant_language_choice)
+    display_lang = dominant_lang or detect_segment_lang(full_text, spans[0][0])
     if not display_lang:
         raise ValueError("Failed to detect generated text language. Please check fastlid installation and input text.")
-    return full_text, spans, display_lang
+    return full_text, spans, display_lang, dominant_lang
 
 
-def build_gen_text_from_mode(text_mode, gen_text, segment_values):
+def build_gen_text_from_mode(text_mode, gen_text, dominant_language_choice, segment_values):
     if text_mode == TEXT_MODE_CODESWITCH:
-        return build_manual_gen_text_spans(segment_values)
-    return build_gen_text_spans(gen_text)
+        return build_manual_gen_text_spans(dominant_language_choice, segment_values)
+    full_text, spans, display_lang = build_gen_text_spans(gen_text)
+    return full_text, spans, display_lang, None
 
 
 def preprocess_stage1_ref(ref_audio, ref_text, show_info=gr.Info):
@@ -322,7 +332,7 @@ def preprocess_stage2_ref(ref_audio, show_info=gr.Info):
 
 @lru_cache(maxsize=1000)
 @gpu_decorator
-def infer(ref_audio, ref_text, text_mode, gen_text, model_choice, *segment_values, show_info=gr.Info):
+def infer(ref_audio, ref_text, text_mode, gen_text, model_choice, dominant_language_choice, *segment_values, show_info=gr.Info):
     if not ref_audio:
         gr.Warning("Please provide reference audio.")
         return gr.update(), ref_text
@@ -338,7 +348,12 @@ def infer(ref_audio, ref_text, text_mode, gen_text, model_choice, *segment_value
         if model_choice == STAGE1_MODEL:
             runtime = get_stage1_runtime(show_info=show_info)
             ref_audio, ref_text, ref_lang = preprocess_stage1_ref(ref_audio, ref_text, show_info=show_info)
-            gen_text, gen_lang_spans, display_gen_lang = build_gen_text_from_mode(text_mode, gen_text, segment_values)
+            gen_text, gen_lang_spans, display_gen_lang, dominant_gen_lang = build_gen_text_from_mode(
+                text_mode,
+                gen_text,
+                dominant_language_choice,
+                segment_values,
+            )
 
             show_info(f"Detected languages: ref={ref_lang}, gen={display_gen_lang}")
             final_wave, final_sample_rate, _ = infer_xvoice_process(
@@ -352,6 +367,7 @@ def infer(ref_audio, ref_text, text_mode, gen_text, model_choice, *segment_value
                 runtime["model"],
                 current_vocoder,
                 runtime["lang_to_id_map"],
+                dominant_lang=[dominant_gen_lang] if dominant_gen_lang else None,
                 srp_model=None,
                 mel_spec_type_value=VOCODER_NAME,
                 progress=gr.Progress(),
@@ -377,7 +393,12 @@ def infer(ref_audio, ref_text, text_mode, gen_text, model_choice, *segment_value
         runtime = get_stage2_runtime(show_info=show_info)
         duration_model = get_srp_model(show_info=show_info)
         ref_audio = preprocess_stage2_ref(ref_audio, show_info=show_info)
-        gen_text, gen_lang_spans, display_gen_lang = build_gen_text_from_mode(text_mode, gen_text, segment_values)
+        gen_text, gen_lang_spans, display_gen_lang, dominant_gen_lang = build_gen_text_from_mode(
+            text_mode,
+            gen_text,
+            dominant_language_choice,
+            segment_values,
+        )
 
         show_info(f"Detected language: gen={display_gen_lang}")
         final_wave, final_sample_rate, _ = infer_xvoice_droptext_process(
@@ -390,6 +411,7 @@ def infer(ref_audio, ref_text, text_mode, gen_text, model_choice, *segment_value
             current_vocoder,
             runtime["lang_to_id_map"],
             duration_model,
+            dominant_lang=[dominant_gen_lang] if dominant_gen_lang else None,
             mel_spec_type_value=VOCODER_NAME,
             progress=gr.Progress(),
             target_rms_value=TARGET_RMS,
@@ -443,8 +465,25 @@ def add_code_switch_segment(current_count):
     ]
 
 
+def remove_code_switch_segment(current_count, *segment_values):
+    new_count = max(int(current_count) - 1, 1)
+    updates = [new_count]
+    updates.extend(
+        gr.update(visible=idx < new_count)
+        for idx in range(MAX_CODE_SWITCH_SEGMENTS)
+    )
+    for idx in range(MAX_CODE_SWITCH_SEGMENTS):
+        language_choice = segment_values[idx * 2]
+        segment_text = segment_values[idx * 2 + 1]
+        if idx < new_count:
+            updates.extend((language_choice, segment_text))
+        else:
+            updates.extend(("English(en)", ""))
+    return updates
+
+
 def load_code_switch_sample():
-    updates = [3]
+    updates = [DOMINANT_LANG_AUTO, 3]
     updates.extend(
         gr.update(visible=idx < 3)
         for idx in range(MAX_CODE_SWITCH_SEGMENTS)
@@ -491,6 +530,12 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
             code_switch_rows = []
             code_switch_inputs = []
             with gr.Column(visible=False) as code_switch_panel:
+                dominant_language_input = gr.Dropdown(
+                    choices=DOMINANT_LANGUAGE_CHOICES,
+                    value=DOMINANT_LANG_AUTO,
+                    allow_custom_value=True,
+                    label="Dominant Language",
+                )
                 for idx in range(MAX_CODE_SWITCH_SEGMENTS):
                     with gr.Row(visible=idx < 3) as code_switch_row:
                         language_input = gr.Dropdown(
@@ -509,6 +554,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     code_switch_inputs.extend([language_input, segment_input])
                 with gr.Row():
                     add_segment_btn = gr.Button("+")
+                    remove_segment_btn = gr.Button("-")
                     code_switch_sample_btn = gr.Button("Code-Switch Sample")
             generate_btn = gr.Button("Synthesize", variant="primary")
 
@@ -538,13 +584,25 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
         inputs=[code_switch_count],
         outputs=[code_switch_count] + code_switch_rows,
     )
+    remove_segment_btn.click(
+        remove_code_switch_segment,
+        inputs=[code_switch_count] + code_switch_inputs,
+        outputs=[code_switch_count] + code_switch_rows + code_switch_inputs,
+    )
     code_switch_sample_btn.click(
         load_code_switch_sample,
-        outputs=[code_switch_count] + code_switch_rows + code_switch_inputs,
+        outputs=[dominant_language_input, code_switch_count] + code_switch_rows + code_switch_inputs,
     )
     generate_btn.click(
         infer,
-        inputs=[ref_audio_input, ref_text_input, text_mode_input, gen_text_input, choose_model] + code_switch_inputs,
+        inputs=[
+            ref_audio_input,
+            ref_text_input,
+            text_mode_input,
+            gen_text_input,
+            choose_model,
+            dominant_language_input,
+        ] + code_switch_inputs,
         outputs=[audio_output, ref_text_input],
     )
 

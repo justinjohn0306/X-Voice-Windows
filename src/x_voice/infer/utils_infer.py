@@ -1077,6 +1077,7 @@ def infer_xvoice_process(
     model_obj,
     vocoder,
     lang_to_id_map,
+    dominant_lang=None,
     srp_model=None,
     mel_spec_type_value=mel_spec_type,
     progress=tqdm,
@@ -1103,8 +1104,13 @@ def infer_xvoice_process(
         gen_text = [gen_text]
     if isinstance(gen_lang, str):
         gen_lang = [gen_lang]
+    if dominant_lang is None:
+        dominant_lang = [None] * len(gen_text)
+    elif isinstance(dominant_lang, str):
+        dominant_lang = [dominant_lang]
 
     assert len(gen_text) == len(gen_lang), "gen_text and gen_lang lists must have the same length"
+    assert len(gen_text) == len(dominant_lang), "gen_text and dominant_lang lists must have the same length"
 
     audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
     ref_audio_len = audio.shape[-1] // hop_length
@@ -1114,10 +1120,10 @@ def infer_xvoice_process(
 
     all_batches = []
     item_chunk_counts = []
-    for text, lang in zip(gen_text, gen_lang):
+    for text, lang, item_dominant_lang in zip(gen_text, gen_lang, dominant_lang):
         spans = normalize_text_lang_spans(text, lang, normalize_lang_code(lang[0][0]) if isinstance(lang, list) and lang else None)
         full_text = spans_to_text(spans)
-        dominant_lang = detect_segment_lang(full_text, spans[0][0] if spans else None)
+        dominant_lang = normalize_lang_code(item_dominant_lang) or detect_segment_lang(full_text, spans[0][0] if spans else None)
         if sp_type in {"syllable", "pretrained"}:
             if sp_type == "pretrained" and predicted_speed:
                 max_units = max(int(predicted_speed * remaining_seconds * local_speed), 1)
@@ -1134,7 +1140,7 @@ def infer_xvoice_process(
         chunk_spans = split_lang_spans_by_chunks(spans, gen_text_batches)
         item_chunk_counts.append(len(chunk_spans))
         for batch_text, batch_spans in zip(gen_text_batches, chunk_spans):
-            batch_dominant_lang = detect_segment_lang(batch_text, dominant_lang)
+            batch_dominant_lang = dominant_lang if item_dominant_lang else detect_segment_lang(batch_text, dominant_lang)
             all_batches.append((batch_text, batch_spans, batch_dominant_lang))
 
     print(f"\nGenerating audio in {len(all_batches)} chunks...")
@@ -1298,6 +1304,7 @@ def infer_xvoice_droptext_process(
     vocoder,
     lang_to_id_map,
     srp_model,
+    dominant_lang=None,
     mel_spec_type_value=mel_spec_type,
     progress=tqdm,
     target_rms_value=target_rms,
@@ -1325,8 +1332,13 @@ def infer_xvoice_droptext_process(
         gen_text = [gen_text]
     if isinstance(gen_lang, str):
         gen_lang = [gen_lang]
+    if dominant_lang is None:
+        dominant_lang = [None] * len(gen_text)
+    elif isinstance(dominant_lang, str):
+        dominant_lang = [dominant_lang]
 
     assert len(gen_text) == len(gen_lang), "gen_text and gen_lang lists must have the same length"
+    assert len(gen_text) == len(dominant_lang), "gen_text and dominant_lang lists must have the same length"
 
     audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
     ref_audio_len = audio.shape[-1] // hop_length
@@ -1338,16 +1350,16 @@ def infer_xvoice_droptext_process(
 
     all_batches = []
     item_chunk_counts = []
-    for text, lang in zip(gen_text, gen_lang):
+    for text, lang, item_dominant_lang in zip(gen_text, gen_lang, dominant_lang):
         spans = normalize_text_lang_spans(text, lang, normalize_lang_code(lang[0][0]) if isinstance(lang, list) and lang else None)
         full_text = spans_to_text(spans)
-        dominant_lang = detect_segment_lang(full_text, spans[0][0] if spans else None)
+        dominant_lang = normalize_lang_code(item_dominant_lang) or detect_segment_lang(full_text, spans[0][0] if spans else None)
         max_units = max(int(predicted_speed * remaining_seconds * local_speed), 1)
         gen_text_batches = chunk_text_by_units(full_text, dominant_lang, max_units)
         chunk_spans = split_lang_spans_by_chunks(spans, gen_text_batches)
         item_chunk_counts.append(len(chunk_spans))
         for batch_text, batch_spans in zip(gen_text_batches, chunk_spans):
-            batch_dominant_lang = detect_segment_lang(batch_text, dominant_lang)
+            batch_dominant_lang = dominant_lang if item_dominant_lang else detect_segment_lang(batch_text, dominant_lang)
             all_batches.append((batch_text, batch_spans, batch_dominant_lang))
 
     print(f"\nGenerating audio in {len(all_batches)} chunks...")
