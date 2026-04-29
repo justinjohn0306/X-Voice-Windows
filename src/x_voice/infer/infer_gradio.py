@@ -793,7 +793,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     ref_audio_input = gr.Audio(label="Reference Audio", type="filepath")
                     ref_text_input = gr.Textbox(
                         label="Reference Text",
-                        lines=3,
+                        lines=1,
                         placeholder="Optional for Stage1. Leave empty to transcribe with Whisper.",
                     )
                     text_mode_input = gr.Radio(
@@ -801,7 +801,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                         label="Text to Generate",
                         value=TEXT_MODE_AUTO,
                     )
-                    gen_text_input = gr.Textbox(label="Text", lines=8)
+                    gen_text_input = gr.Textbox(label="Text", lines=1)
                     code_switch_count = gr.State(3)
                     code_switch_rows = []
                     code_switch_inputs = []
@@ -823,7 +823,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                                 )
                                 segment_input = gr.Textbox(
                                     label=f"Segment {idx + 1}",
-                                    lines=2,
+                                    lines=1,
                                     scale=3,
                                 )
                             code_switch_rows.append(code_switch_row)
@@ -859,7 +859,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     translate_ref_audio_input = gr.Audio(label="Reference Audio", type="filepath")
                     translate_ref_text_input = gr.Textbox(
                         label="Reference Text",
-                        lines=3,
+                        lines=1,
                         placeholder="Optional. Leave empty to transcribe with Whisper.",
                     )
                     translate_ref_language_input = gr.Dropdown(
@@ -887,7 +887,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     )
                     preview_translated_text = gr.Textbox(
                         label="Translated Text",
-                        lines=5,
+                        lines=1,
                     )
                     preview_audio_output = gr.Audio(label="Generated Audio")
                     gr.Markdown("**Example Prompts**", elem_classes=["plain-markdown"])
