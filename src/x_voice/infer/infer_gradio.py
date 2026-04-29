@@ -689,6 +689,10 @@ def preview_translate_result(results_state, current_label, current_text, preview
     return result["text"], result["audio"], results_state, preview_label
 
 
+def load_translate_english_sample():
+    return EXAMPLE_REF_EN, "Some call me nature, others call me mother nature.", "English(en)"
+
+
 def add_code_switch_segment(current_count):
     new_count = min(int(current_count) + 1, MAX_CODE_SWITCH_SEGMENTS)
     return [new_count] + [
@@ -886,14 +890,8 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                         lines=5,
                     )
                     preview_audio_output = gr.Audio(label="Generated Audio")
-                    gr.Examples(
-                        examples=[
-                            [EXAMPLE_REF_EN, "Some call me nature, others call me mother nature.", "English(en)"],
-                        ],
-                        inputs=[translate_ref_audio_input, translate_ref_text_input, translate_ref_language_input],
-                        label="Example Prompts",
-                        examples_per_page=10,
-                    )
+                    gr.Markdown("**Example Prompts**", elem_classes=["plain-markdown"])
+                    translate_english_sample_btn = gr.Button("English Sample", elem_classes=["orange-button"])
     choose_model.change(
         switch_model,
         inputs=[choose_model, ref_text_input],
@@ -934,6 +932,14 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
         select_all_target_languages,
         inputs=[translate_ref_language_input],
         outputs=[target_languages_input],
+    )
+    translate_english_sample_btn.click(
+        load_translate_english_sample,
+        outputs=[
+            translate_ref_audio_input,
+            translate_ref_text_input,
+            translate_ref_language_input,
+        ],
     )
     translate_btn.click(
         translate_targets,
