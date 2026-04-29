@@ -835,7 +835,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                         choices=DOMINANT_LANGUAGE_CHOICES,
                         value=DOMINANT_LANG_AUTO,
                         allow_custom_value=True,
-                        label="Dominant Language",
+                        label="Dominant Language Style",
                     )
                     for idx in range(MAX_CODE_SWITCH_SEGMENTS):
                         with gr.Row(visible=idx < 3) as code_switch_row:
