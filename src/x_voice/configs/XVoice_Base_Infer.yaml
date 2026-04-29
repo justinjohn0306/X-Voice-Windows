@@ -1,5 +1,5 @@
 datasets:
-  name: XVoice_Subset # Emilia_ZH_EN  # dataset name
+  name: XVoice_Dataset # Emilia_ZH_EN  # dataset name
   batch_size_per_gpu: 57600
   batch_size_type: frame  # frame | sample
   max_samples: 64  # max sequences per batch if use frame-wise batch_size. we set 32 for small models, 64 for base models

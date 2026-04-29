@@ -6,6 +6,7 @@
 [![hfspace](https://img.shields.io/badge/🤗-HF%20Space-yellow)](unknown)
 [![dataset](https://img.shields.io/badge/🤗-Dataset-yellow)](https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train)
 [![dataset](https://img.shields.io/badge/🤗-Benchmark-yellow)](https://huggingface.co/datasets/XRXRX/X-Voice-Testset)
+[![modelscope](https://img.shields.io/badge/ModelScope-Dataset-blue)](https://modelscope.cn/datasets/sunnyxrxrx/X-Voice-Dataset-Train)
 [![lab](https://img.shields.io/badge/🏫-X--LANCE-grey?labelColor=lightgrey)](https://x-lance.sjtu.edu.cn/)
 [![lab](https://img.shields.io/badge/🏫-SII-grey?labelColor=lightgrey)](https://www.sii.edu.cn/)
 [![company](https://img.shields.io/badge/🏢-Geely-grey?labelColor=lightgrey)](https://www.geely.com)
