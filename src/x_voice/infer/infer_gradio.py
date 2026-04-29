@@ -829,6 +829,10 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
         current_preview_language_state = gr.State(None)
         with gr.Row():
             with gr.Column(scale=1):
+                gr.Markdown(
+                    "Translate the reference text with NLLB-200 0.6B, edit the translated text if needed, "
+                    "then clone the reference voice in the selected target languages."
+                )
                 translate_ref_audio_input = gr.Audio(label="Reference Audio", type="filepath")
                 translate_ref_text_input = gr.Textbox(
                     label="Reference Text",
@@ -846,10 +850,11 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     label="Target Languages",
                     multiselect=True,
                 )
-                with gr.Row():
-                    select_all_targets_btn = gr.Button("Generate All Languages")
-                    translate_btn = gr.Button("Translate", variant="primary")
-                    translate_clone_btn = gr.Button("Clone")
+                select_all_targets_btn = gr.Button("Generate All Languages")
+                gr.Markdown("**Step 1: Translate Text**")
+                translate_btn = gr.Button("Translate Text", variant="primary")
+                gr.Markdown("**Step 2: Clone Voice**")
+                translate_clone_btn = gr.Button("Clone Voice")
 
             with gr.Column(scale=1):
                 preview_language_input = gr.Dropdown(
