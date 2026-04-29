@@ -6,6 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "x-voice"
 version = "0.1.0"
 description = "X-Voice multilingual TTS toolkit"
+requires-python = ">=3.11"
+authors = [
+    { name = "Rixi Xu" },
+    { name = "Qingyu Liu" },
+]
 readme = "README.md"
 license = { text = "MIT License" }
 classifiers = [
@@ -37,7 +42,6 @@ dependencies = [
     "nemo_text_processing",
     "num2words",
     "numpy<=1.26.4; python_version<='3.10'",
-    "onnxruntime-gpu",
     "openai-whisper",
     "phonemizer",
     "pydantic<=2.10.6",
@@ -69,7 +73,6 @@ dependencies = [
     "WeTextProcessing",
     "x_transformers>=1.31.14",
     "xphonebr",
-    "tts-preprocess-et @ git+https://github.com/TartuNLP/tts_preprocess_et.git",
 ]
 
 [project.optional-dependencies]
@@ -78,6 +81,8 @@ eval = [
     "funasr",
     "jiwer",
     "modelscope",
+    "onnxruntime-gpu",
+    "tts-preprocess-et @ git+https://github.com/TartuNLP/tts_preprocess_et.git",
     "zhconv",
     "zhon",
 ]
