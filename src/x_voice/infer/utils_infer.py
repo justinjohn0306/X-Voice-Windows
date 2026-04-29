@@ -1193,7 +1193,7 @@ def infer_xvoice_process(
     audio, rms = prepare_ref_audio_tensor(ref_audio, target_rms_value, denoise_ref, device_name)
     ref_audio_len = audio.shape[-1] // hop_length
     ref_seconds = audio.shape[-1] / target_sample_rate
-    remaining_seconds = 26 - ref_seconds
+    remaining_seconds = 22 - ref_seconds
     predicted_speed = predict_ref_speed(srp_model, audio)
 
     all_batches = []
