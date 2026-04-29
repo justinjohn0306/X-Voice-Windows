@@ -10,10 +10,6 @@ try:
     from tts_preprocess_et.convert import convert_sentence as et_convert_sentence
 except ImportError:
     et_convert_sentence = None
-# import debugpy
-# debugpy.listen(('localhost', 5678))
-# print("Waiting for debugger attach")
-# debugpy.wait_for_client()
 
 class TextNormalizer:
     def __init__(self, language):

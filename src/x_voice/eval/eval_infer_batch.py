@@ -35,12 +35,6 @@ logger = logging.getLogger("phonemizer")
 logger.setLevel(logging.ERROR)
 logger.propagate = False
 
-# import debugpy
-# debugpy.listen(('localhost', 5678))
-# print("Waiting for debugger attach")
-# debugpy.wait_for_client()
-
-#accelerator = Accelerator(mixed_precision="fp16")
 accelerator = Accelerator()
 device = f"cuda:{accelerator.process_index}"
 
