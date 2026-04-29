@@ -251,7 +251,7 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, num_workers=16, 
 def main():
     parser = argparse.ArgumentParser()
     support_tokenizer = ["ipa_v3", "ipa_v6"]
-    parser.add_argument("--inp_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/x-voice",help="Root dir containing metadata_*.csv and wavs/")
+    parser.add_argument("--inp_dir", type=str, required=True, help="Root dir containing metadata_*.csv and wavs/")
     parser.add_argument("--out_dir", type=str, default="./data",help="Output root dir for raw.arrow")
     parser.add_argument("--workers", type=int, default=16, help="Number of CPU workers")
     parser.add_argument("--tokenizer",type=str, choices=support_tokenizer, default="ipa_v6")
@@ -268,5 +268,3 @@ def main():
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
     main()
-    
-# python src/x_voice/train/datasets/prepare_ipa.py --tokenizer ipa_v6 --dataset_name multilingual_xrx_test2_phase1 --dnsmos 2.0 --check_exists

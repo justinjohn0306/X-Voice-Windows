@@ -10,11 +10,6 @@ from x_voice.model import CFM, Trainer
 from x_voice.model.dataset import load_dataset
 from x_voice.model.utils import get_tokenizer
 
-# import debugpy
-# debugpy.listen(('localhost', 5679))
-# print("Waiting for debugger attach")
-# debugpy.wait_for_client()
-
 os.chdir(str(files("x_voice").joinpath("../..")))  # change working directory to root of project (local editable)
 
 

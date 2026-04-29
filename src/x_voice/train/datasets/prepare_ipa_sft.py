@@ -236,11 +236,11 @@ def prepare_all(inp_dir, out_dir_root, tokenizer, dataset_name, sft_gen_dir, num
 def main():
     parser = argparse.ArgumentParser()
     support_tokenizer = ["ipa_v3", "ipa_v6"]
-    parser.add_argument("--inp_dir", type=str, default="/inspire/hdd/project/embodied-multimodality/chenxie-25019/rixixu/datasets/x-voice",help="Root dir containing metadata_*.csv and wavs/")
+    parser.add_argument("--inp_dir", type=str, required=True, help="Root dir containing metadata_*.csv and wavs/")
     parser.add_argument("--out_dir", type=str, default="./data",help="Output root dir for raw.arrow")
     parser.add_argument("--sft_gen_dir", type=str, required=True, help="Root dir containing generated .pt and .json files (e.g. multilingual_sft_gen)")
     parser.add_argument("--workers", type=int, default=16, help="Number of CPU workers")
-    parser.add_argument("--tokenizer",type=str, choices=support_tokenizer, default="ipa_v3")
+    parser.add_argument("--tokenizer",type=str, choices=support_tokenizer, default="ipa_v6")
     parser.add_argument("--dataset_name",type=str, default="XVoice_Dataset")
     parser.add_argument("--check_exists", action="store_true", help="Whether to check if the audio file exists before processing.")
     
@@ -252,5 +252,3 @@ def main():
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
     main()
-    
-# python src/x_voice/train/datasets/prepare_ipa_sft.py --tokenizer ipa_v6 --dataset_name multilingual_xrx_test_gendata --sft_gen_dir ./multilingual_xrx_test_gendata_gen --check_exists

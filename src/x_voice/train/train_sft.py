@@ -10,11 +10,6 @@ from x_voice.model import CFM_SFT, Trainer_SFT
 from x_voice.model.dataset import load_dataset
 from x_voice.model.utils import get_tokenizer
 
-# import debugpy
-# debugpy.listen(('localhost', 5638))
-# print("Waiting for debugger attach")
-# debugpy.wait_for_client()
-
 os.chdir(str(files("x_voice").joinpath("../..")))  # change working directory to root of project (local editable)
 
 
@@ -58,6 +53,7 @@ def main(model_cfg):
     pretrained_path = model_cfg.ckpts.get("pretrained_path", None)
     if pretrained_path is None:
         raise ValueError("pretrained_path is required in SFT mode.")
+
     # init trainer
     trainer = Trainer_SFT(
         model,
