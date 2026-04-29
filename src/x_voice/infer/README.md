@@ -2,17 +2,17 @@
 
 This folder contains three inference entry points:
 
-- `infer_cli_stage1.py`: Stage1 zero-shot voice cloning. Requires reference audio and reference text.
-- `infer_cli_stage2.py`: Stage2 drop-text voice cloning. Requires reference audio, does not need reference text, and uses SRP to predict duration.
+- `infer_cli_stage1.py`: X-Voice Stage1 zero-shot voice cloning. Requires reference audio and reference text.
+- `infer_cli_stage2.py`: X-Voice Stage2 drop-text voice cloning. Requires reference audio, does not need reference text, and uses SRP to predict duration.
 - `infer_gradio.py`: unified web demo for zero-shot cloning and translate-and-clone.
 
 All commands below should be run from the repository root.
 
 Pretrained X-Voice checkpoints are available on [Hugging Face](https://huggingface.co/XRXRX/X-Voice). The Gradio demo downloads the default checkpoints automatically. For CLI usage, download the needed files from the same repository and set the paths in the TOML file or pass them with command-line flags.
 
-## Stage1 CLI
+## X-Voice Stage1 CLI
 
-Stage1 clones a reference voice with reference transcript conditioning.
+X-Voice Stage1 clones a reference voice with reference transcript conditioning.
 
 Run with the example TOML:
 
@@ -31,18 +31,18 @@ Important fields:
 
 | Field | Meaning |
 | --- | --- |
-| `model_cfg` | Stage1 yaml, usually `src/x_voice/configs/XVoice_Base_Stage1.yaml` |
-| `ckpt_file` | Stage1 checkpoint path |
-| `vocab_file` | Stage1 vocab path |
+| `model_cfg` | X-Voice Stage1 yaml, usually `src/x_voice/configs/XVoice_Base_Stage1.yaml` |
+| `ckpt_file` | X-Voice Stage1 checkpoint path |
+| `vocab_file` | X-Voice Stage1 vocab path |
 | `ref_audio` | reference voice audio |
-| `ref_text` | transcript for `ref_audio`; required for Stage1 |
+| `ref_text` | transcript for `ref_audio`; required for X-Voice Stage1 |
 | `gen_text` / `gen_file` | text to synthesize |
 | `ref_lang` / `gen_lang` | optional language codes |
 | `auto_detect_lang` | if true, detect missing ref/gen language automatically |
 | `normalize_text` | normalize text by language before tokenization |
 | `sp_type` | duration estimator: `syllable`, `pretrained`, or `utf` |
 
-For normal Stage1 use, keep:
+For normal X-Voice Stage1 use, keep:
 
 ```toml
 sp_type = "syllable"
@@ -50,9 +50,9 @@ auto_detect_lang = true
 normalize_text = true
 ```
 
-## Stage2 CLI
+## X-Voice Stage2 CLI
 
-Stage2 is drop-text inference. It uses reference audio only and does not need reference text.
+X-Voice Stage2 is drop-text inference. It uses reference audio only and does not need reference text.
 
 Run with the example TOML:
 
@@ -71,17 +71,17 @@ Important fields:
 
 | Field | Meaning |
 | --- | --- |
-| `model_cfg` | Stage2 yaml, usually `src/x_voice/configs/XVoice_Base_Stage2.yaml` |
-| `ckpt_file` | Stage2 checkpoint path |
+| `model_cfg` | X-Voice Stage2 yaml, usually `src/x_voice/configs/XVoice_Base_Stage2.yaml` |
+| `ckpt_file` | X-Voice Stage2 checkpoint path |
 | `srp_model_cfg` | SRP config, usually `src/srp/configs/SpeedPredict_Multilingual.yaml` |
-| `srp_ckpt_file` | SRP checkpoint path; required for Stage2 |
-| `vocab_file` | Stage1 vocab path used by Stage2 tokenizer |
+| `srp_ckpt_file` | SRP checkpoint path; required for X-Voice Stage2 |
+| `vocab_file` | X-Voice Stage1 vocab path used by X-Voice Stage2 tokenizer |
 | `ref_audio` | reference voice audio |
 | `gen_text` / `gen_file` | text to synthesize |
 | `gen_lang` | optional generated text language |
 | `auto_detect_lang` | if true, detect missing generated text language automatically |
 
-Stage2 config must point to a model yaml with:
+X-Voice Stage2 config must point to a model yaml with:
 
 ```yaml
 model:
@@ -125,7 +125,7 @@ Language spans are used for tokenizer, token-wise LID, and duration unit countin
 
 Both CLI scripts support multiple voices through `[voices.<name>]`.
 
-Stage1 voice entries can include `ref_audio`, `ref_text`, `ref_lang`, `gen_lang`, and `speed`.
+X-Voice Stage1 voice entries can include `ref_audio`, `ref_text`, `ref_lang`, `gen_lang`, and `speed`.
 
 Example:
 
@@ -146,7 +146,7 @@ ref_lang = "en"
 speed = 1.0
 ```
 
-Stage2 voice entries only need `ref_audio` and optional `gen_lang` / `speed`.
+X-Voice Stage2 voice entries only need `ref_audio` and optional `gen_lang` / `speed`.
 
 ## Common Parameters
 
@@ -197,17 +197,17 @@ The web demo has two modes.
 
 This mode preserves the normal cloning workflow:
 
-- choose Stage1 or Stage2
+- choose X-Voice Stage1 or X-Voice Stage2
 - upload reference audio
-- provide reference text for Stage1, or leave it empty to transcribe with Whisper
+- provide reference text for X-Voice Stage1, or leave it empty to transcribe with Whisper
 - enter text manually or use manual code-switch segments
 - synthesize one output audio
 
-Stage1 requires the reference voice language to be one of the supported 30 languages. Stage2 can use a reference voice in any language.
+X-Voice Stage1 requires the reference voice language to be one of the supported 30 languages. X-Voice Stage2 can use a reference voice in any language.
 
 ### Translate & Clone
 
-This mode uses Stage1 only.
+This mode uses X-Voice Stage1 only.
 
 Workflow:
 
@@ -237,8 +237,8 @@ https://huggingface.co/XRXRX/X-Voice
 
 The Gradio demo downloads the default files automatically from this Hugging Face repository:
 
-- Stage1: `XVoice_Base_Stage1/model_600000.safetensors`
-- Stage2: `XVoice_Base_Stage2/model_70000.safetensors`
+- X-Voice Stage1: `XVoice_Base_Stage1/model_600000.safetensors`
+- X-Voice Stage2: `XVoice_Base_Stage2/model_70000.safetensors`
 - SRP: `SpeedPredictor/model_28000.safetensors`
 - Vocab: `XVoice_Base_Stage1/vocab.txt`
 
