@@ -749,13 +749,13 @@ def load_code_switch_sample():
 
 
 BUTTON_CSS = """
-button {
+.orange-button button {
     background: #f97316 !important;
     border-color: #ea580c !important;
     color: #ffffff !important;
 }
 
-button:hover {
+.orange-button button:hover {
     background: #ea580c !important;
     border-color: #c2410c !important;
 }
@@ -841,14 +841,14 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                         add_segment_btn = gr.Button("+")
                         remove_segment_btn = gr.Button("-")
                         code_switch_sample_btn = gr.Button("Code-Switch Sample")
-                generate_btn = gr.Button("Synthesize", variant="primary")
+                generate_btn = gr.Button("Synthesize", variant="primary", elem_classes=["orange-button"])
 
             with gr.Column(scale=1):
                 audio_output = gr.Audio(label="Generated Audio")
                 gr.Markdown("**Example Prompts**", elem_classes=["plain-markdown"])
                 with gr.Row():
-                    clone_english_sample_btn = gr.Button("English Sample")
-                    clone_mandarin_sample_btn = gr.Button("Mandarin Sample")
+                    clone_english_sample_btn = gr.Button("English Sample", elem_classes=["orange-button"])
+                    clone_mandarin_sample_btn = gr.Button("Mandarin Sample", elem_classes=["orange-button"])
 
     with gr.Group(visible=False) as translate_panel:
         translate_results_state = gr.State({})
@@ -877,13 +877,13 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                     label="Target Languages",
                     multiselect=True,
                 )
-                select_all_targets_btn = gr.Button("Generate All Languages")
+                select_all_targets_btn = gr.Button("Generate All Languages", elem_classes=["orange-button"])
 
             with gr.Column(scale=1):
                 gr.Markdown("**Step 1: Translate Text**", elem_classes=["plain-markdown"])
-                translate_btn = gr.Button("Translate Text", variant="primary")
+                translate_btn = gr.Button("Translate Text", variant="primary", elem_classes=["orange-button"])
                 gr.Markdown("**Step 2: Clone Voice**", elem_classes=["plain-markdown"])
-                translate_clone_btn = gr.Button("Clone Voice")
+                translate_clone_btn = gr.Button("Clone Voice", elem_classes=["orange-button"])
                 preview_language_input = gr.Dropdown(
                     choices=[],
                     value=None,
@@ -896,7 +896,7 @@ Stage 1 requires the reference voice to be in one of the 30 supported languages,
                 preview_audio_output = gr.Audio(label="Generated Audio")
                 gr.Markdown("**Example Prompts**", elem_classes=["plain-markdown"])
                 with gr.Row():
-                    translate_english_sample_btn = gr.Button("English Sample")
+                    translate_english_sample_btn = gr.Button("English Sample", elem_classes=["orange-button"])
 
     app_mode_input.change(
         switch_app_mode,
