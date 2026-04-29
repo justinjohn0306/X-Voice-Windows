@@ -4,7 +4,7 @@ hydra:
     dir: ckpts/${model.name}_${model.mel_spec.mel_spec_type}_${model.tokenizer}_${datasets.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 datasets:
-  name: XVoice_Dataset
+  name: XVoice_Subset
   batch_size_per_gpu: 38400  # 8 GPUs, 8 * 38400 = 307200
   batch_size_type: frame  # frame | sample
   max_samples: 32  # max sequences per batch if use frame-wise batch_size. we set 32 for small models, 64 for base models
