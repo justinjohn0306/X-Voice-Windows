@@ -2,7 +2,7 @@
 
 <a href="https://arxiv.org/abs/unknown" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Paper-Coming%20Soon-b31b1b.svg?logo=arXiv&style=for-the-badge" alt="Paper"></a>
 <a href="https://sunnyxrxrx.github.io/X-Voice-Demo/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Demo-Samples-orange.svg?logo=github&style=for-the-badge" alt="Demo"></a>
-<img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+<img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
 <a href="https://huggingface.co/spaces/chenxie95/X-Voice" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Interactive%20Demo-HF%20Space-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Space"></a>
 <a href="https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Dataset-Train%20Set-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Dataset"></a>
 <a href="https://huggingface.co/datasets/XRXRX/X-Voice-Testset" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Benchmark-Test%20Set-lightgrey?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Benchmark"></a>
@@ -24,7 +24,7 @@
 ### Create a separate environment if needed
 
 ```bash
-# Create a conda env with python_version>=3.11
+# Create a conda env with python_version>=3.10
 conda create -n x-voice python=3.11
 conda activate x-voice
 
