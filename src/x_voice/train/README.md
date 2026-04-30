@@ -10,7 +10,7 @@
   ```bash
   espeak-ng --version 
   ```
-  If not found, run `x_voice/prepare_ipa.sh` first.
+  If not found, run `bash x_voice/prepare_ipa.sh` first.
 
 - Download our dataset from [Hugging Face](https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train) or [ModelScope](https://modelscope.cn/datasets/sunnyxrxrx/X-Voice-Dataset-Train) and organize it in the following structure:
   ```
