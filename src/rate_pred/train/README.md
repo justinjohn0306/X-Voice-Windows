@@ -1,6 +1,6 @@
-# SRP Training
+# Speaking Rate Predictor Training
 
-This folder trains the multilingual Speed Rate Predictor (SRP) used by X-Voice Stage2 duration prediction.
+This folder trains the multilingual Speaking Rate Predictor (SRP) used by X-Voice Stage2 duration prediction.
 
 ## Prepare Dataset
 
@@ -20,7 +20,7 @@ x_voice/
     └── metadata_zh_emilia.csv
 ```
 
-Prepare SRP data:
+Prepare  data:
 
 ```bash
 python src/rate_pred/train/datasets/prepare_multilingual_speed.py \
