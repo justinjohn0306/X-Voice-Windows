@@ -13,7 +13,7 @@
 <a href="https://www.clsp.jhu.edu" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/CLSP-grey?labelColor=lightgrey&logo=leanpub&style=for-the-badge" alt="CLSP"></a>
 <!-- <img src="https://github.com/user-attachments/assets/12d7749c-071a-427c-81bf-b87b91def670" alt="Watermark" style="width: 40px; height: auto"> -->
 
-**X-Voice** is a flow-matching-based multilingual zero-shot voice cloning system that enables one speaker to speak 30 languages.
+**X-Voice** is a flow-matching-based multilingual text-to-speech system that enables one speaker to speak 30 languages.
 
 ## News
 
