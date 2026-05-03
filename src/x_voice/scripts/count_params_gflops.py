@@ -17,7 +17,7 @@ language_list = ["bg","cs","da","de","el","en","es","et","fi","fr","hr","hu","id
 
 """ ~340M """
 # FLOPs: 364.4 G, Params: 338.9 M
-# transformer = DiT(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4, languages=language_list, text_infill_lang_type="ada", time_infill_lang_type="time_concat", lang_dim=512, lang_dim_in_t=512, share_lang_embed=True)
+transformer = DiT(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4, languages=language_list, text_infill_lang_type="ada", time_infill_lang_type="time_concat", lang_dim=512, lang_dim_in_t=512, share_lang_embed=True)
 
 
 model = CFM(transformer=transformer)

@@ -59,8 +59,8 @@ def normalize_one(hypo, truth, normalizer):
     raw_truth = truth
     raw_hypo = hypo
     if normalizer:
-        truth = normalizer.normalize(truth, post=True)
-        hypo = normalizer.normalize(hypo, post=True)
+        truth = normalizer.normalize(truth)
+        hypo = normalizer.normalize(hypo)
     if lang[-2:] in ["zh", "ja", "ko","th"]:
         truth = " ".join([x for x in truth])
         hypo = " ".join([x for x in hypo]) # Chinese hypotheses already contain implicit token spacing.
