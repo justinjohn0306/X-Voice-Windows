@@ -1,6 +1,6 @@
 # X-Voice: Enabling Everyone to Speak 30 Languages via Zero-Shot Cross-Lingual Voice Cloning
 
-<a href="https://arxiv.org/abs/unknown" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Paper-Coming%20Soon-b31b1b.svg?logo=arXiv&style=for-the-badge" alt="Paper"></a>
+<a href="https://arxiv.org/abs/2605.05611" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Paper-2605.05611-b31b1b.svg?logo=arXiv&style=for-the-badge" alt="Paper"></a>
 <a href="https://sunnyxrxrx.github.io/X-Voice-Demo/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Demo-Samples-orange.svg?logo=github&style=for-the-badge" alt="Demo"></a>
 <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
 <a href="https://huggingface.co/spaces/chenxie95/X-Voice" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Interactive%20Demo-HF%20Space-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Space"></a>
@@ -158,6 +158,16 @@ pre-commit run --all-files
 - [FunASR](https://github.com/modelscope/FunASR), [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [UniSpeech](https://github.com/microsoft/UniSpeech), [SpeechMOS](https://github.com/tarepan/SpeechMOS) for evaluation tools
 - [MAVL](https://github.com/k1064190/MAVL/tree/main) for Japanese syllable counting
 
+## Citations
+If you find our work useful, please cite as:
+```
+@article{xu2026xvoiceenablingspeak30,
+      title={X-Voice: Enabling Everyone to Speak 30 Languages via Zero-Shot Cross-Lingual Voice Cloning}, 
+      author={Rixi Xu and Qingyu Liu and Haitao Li and Yushen Chen and Zhikang Niu and Yunting Yang and Jian Zhao and Ke Li and Berrak Sisman and Qinyuan Cheng and Xipeng Qiu and Kai Yu and Xie Chen},
+      journal={arXiv preprint arXiv:2605.05611},
+      year={2026},
+}
+```
 ## License
 
 Our code is released under MIT License. The pre-trained models are licensed under the CC-BY-NC license due to the training data X-Voice Dataset.
