@@ -18,6 +18,7 @@
 ## News
 
 - **2026/04/30**: X-Voice <a href="https://github.com/sunnyxrxrx/X-Voice" target="_blank" rel="noopener noreferrer">codebase</a>, <a href="https://huggingface.co/XRXRX/X-Voice" target="_blank" rel="noopener noreferrer">model</a>, <a href="https://sunnyxrxrx.github.io/X-Voice-Demo/" target="_blank" rel="noopener noreferrer">demo</a>, <a href="https://huggingface.co/spaces/chenxie95/X-Voice" target="_blank" rel="noopener noreferrer">Hugging Face Space</a>, <a href="https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train" target="_blank" rel="noopener noreferrer">dataset</a>, and <a href="https://huggingface.co/datasets/XRXRX/X-Voice-Testset" target="_blank" rel="noopener noreferrer">benchmark</a> are released.
+- **2026/05/08**: X-Voice [paper](https://arxiv.org/abs/2605.05611) publicly released on arXiv.
 
 ## Installation
 
