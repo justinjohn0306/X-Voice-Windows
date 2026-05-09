@@ -1,12 +1,14 @@
 # X-Voice: Enabling Everyone to Speak 30 Languages via Zero-Shot Cross-Lingual Voice Cloning
 
 <a href="https://arxiv.org/abs/2605.05611" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Paper-2605.05611-b31b1b.svg?logo=arXiv&style=for-the-badge" alt="Paper"></a>
-<a href="https://sunnyxrxrx.github.io/X-Voice-Demo/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Demo-Samples-orange.svg?logo=github&style=for-the-badge" alt="Demo"></a>
+<a href="https://sunnyxrxrx.github.io/X-Voice-Demo/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/-Demo%20Page-orange?labelColor=grey&logo=github&style=for-the-badge" alt="Demo"></a>
+<a href="https://huggingface.co/spaces/chenxie95/X-Voice" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Interactive%20Demo-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Space"></a>
+<a href="https://huggingface.co/XRXRX/X-Voice" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Models-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Model"></a>
 <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-<a href="https://huggingface.co/spaces/chenxie95/X-Voice" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Interactive%20Demo-HF%20Space-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Space"></a>
-<a href="https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Dataset-Train%20Set-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Dataset"></a>
-<a href="https://huggingface.co/datasets/XRXRX/X-Voice-Testset" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Benchmark-Test%20Set-lightgrey?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Benchmark"></a>
-<a href="https://modelscope.cn/datasets/sunnyxrxrx/X-Voice-Dataset-Train" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Dataset-Train%20Set-blue?logo=alibabacloud&style=for-the-badge" alt="ModelScope Dataset"></a>
+<a href="https://huggingface.co/datasets/XRXRX/X-Voice-Dataset-Train" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Huggingface-Train%20Set-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Dataset"></a>
+<a href="https://huggingface.co/datasets/XRXRX/X-Voice-Testset" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Huggingface-Benchmark-yellow?labelColor=grey&logo=huggingface&style=for-the-badge" alt="HF Benchmark"></a>
+<a href="https://modelscope.cn/datasets/sunnyxrxrx/X-Voice-Dataset-Train" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/ModelScope-Train%20Set-blue?logo=alibabacloud&style=for-the-badge" alt="ModelScope Dataset"></a>
+<a href="https://modelscope.cn/datasets/sunnyxrxrx/X-Voice-Testset" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/ModelScope-Benchmark-blue?logo=alibabacloud&style=for-the-badge" alt="ModelScope Testset"></a>
 <a href="https://x-lance.sjtu.edu.cn/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/X--LANCE-grey?labelColor=lightgrey&logo=leanpub&style=for-the-badge" alt="X-LANCE"></a>
 <a href="https://www.sii.edu.cn/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/SII-grey?labelColor=lightgrey&logo=leanpub&style=for-the-badge" alt="SII"></a>
 <a href="https://www.geely.com" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Geely-grey?labelColor=lightgrey&logo=accenture&style=for-the-badge" alt="Geely"></a>
