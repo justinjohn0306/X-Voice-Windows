@@ -1282,7 +1282,7 @@ def infer_xvoice_process(
     padded_lang_ids = [ids + [-1] * (max_len - len(ids)) for ids in language_ids_list]
     language_ids_tensor = torch.tensor(padded_lang_ids, dtype=torch.long, device=device_name)
     time_language_ids_tensor = torch.tensor(time_language_ids_list, dtype=torch.long, device=device_name)
-
+    infer_mode_flag = next(model_obj.transformer.parameters()).dtype == torch.float16
     with torch.inference_mode():
         generated, _ = model_obj.sample(
             cond=cond_batch,
@@ -1298,7 +1298,7 @@ def infer_xvoice_process(
             reverse=reverse,
             layered=layered,
             cfg_strength2=cfg_strength2_value,
-            infer_mode=True,
+            infer_mode=infer_mode_flag,
         )
 
         if post_processing:
@@ -1489,7 +1489,7 @@ def infer_xvoice_droptext_process(
     padded_lang_ids = [ids + [-1] * (max_len - len(ids)) for ids in language_ids_list]
     language_ids_tensor = torch.tensor(padded_lang_ids, dtype=torch.long, device=device_name)
     time_language_ids_tensor = torch.tensor(time_language_ids_list, dtype=torch.long, device=device_name)
-
+    infer_mode_flag = next(model_obj.transformer.parameters()).dtype == torch.float16
     with torch.inference_mode():
         generated, _ = model_obj.sample(
             cond=cond_batch,
@@ -1505,7 +1505,7 @@ def infer_xvoice_droptext_process(
             reverse=reverse,
             layered=layered,
             cfg_strength2=cfg_strength2_value,
-            infer_mode=True,
+            infer_mode=infer_mode_flag,
         )
 
         if post_processing:
