@@ -42,7 +42,7 @@ conda install ffmpeg
 
 > ```bash
 > # Install pytorch with your CUDA version, e.g.
-> pip install torch==2.8.0+cu128 torchaudio==2.8.0+cu128 --extra-index-url https://download.pytorch.org/whl/cu128
+> pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu128
 > ```
 
 </details>
@@ -84,6 +84,7 @@ git clone https://github.com/sunnyxrxrx/X-Voice.git
 cd X-Voice
 pip install -e .
 pip install WeTextProcessing --no-deps
+pip install torchcodec==0.10.0
 ```
 
 Check your ESpeak-ng installation:
