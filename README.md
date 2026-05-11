@@ -93,6 +93,17 @@ espeak-ng --version
 
 If not found, run `bash src/x_voice/prepare_ipa.sh` first.
 
+### Installing espeak on windows
+Download `espeak-ng-X64.msi` from [here](https://github.com/espeak-ng/espeak-ng/releases) and run it.  
+After execution, add `PHONEMIZER_ESPEAK_LIBRARY` to the system environment variable and set the value to the following and you are done. 
+`C:\Program Files\eSpeak NG\libespeak-ng.dll`
+
+<img width="508" height="81" alt="espeak" src="https://github.com/user-attachments/assets/f84fdeaf-b600-406b-96c3-74ae090d7e33" />
+
+
+
+Note that environment variables are not reflected in the terminal (PowersShell, VSCode, etc.) until the terminal is restarted.
+
 ## Inference
 
 - In order to achieve desired performance, take a moment to read [detailed guidance](src/x_voice/infer).
