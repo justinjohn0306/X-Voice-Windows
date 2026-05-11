@@ -83,6 +83,7 @@ conda install ffmpeg
 git clone https://github.com/sunnyxrxrx/X-Voice.git
 cd X-Voice
 pip install -e .
+pip install WeTextProcessing --no-deps
 ```
 
 Check your ESpeak-ng installation:
