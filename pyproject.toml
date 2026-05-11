@@ -70,7 +70,6 @@ dependencies = [
     "unidecode",
     "vocos",
     "wandb",
-    "WeTextProcessing",
     "x_transformers>=1.31.14",
     "xphonebr",
 ]
