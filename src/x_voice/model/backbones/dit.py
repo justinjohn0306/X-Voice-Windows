@@ -154,9 +154,11 @@ class TextEmbedding(nn.Module):
 
             if not self.sft:
                 # Used for CFG or when text is kept but language ids are dropped.
+                # Replace -1 batch-padding with 0 so the embedding lookup stays in bounds.
+                safe_lang_ids = current_lang_ids.masked_fill(current_lang_ids < 0, 0)
                 if drop_lang:
-                    current_lang_ids = torch.full_like(current_lang_ids, self.num_languages)
-                l_emb = self.lang_embed(current_lang_ids) # [b, nt, lang_dim] 
+                    safe_lang_ids = torch.full_like(safe_lang_ids, self.num_languages)
+                l_emb = self.lang_embed(safe_lang_ids) # [b, nt, lang_dim]
                 assert text.shape[0] == l_emb.shape[0] and text.shape[1] == l_emb.shape[1], f"Shape mismatch: text vs lang_ids"
                 if self.text_infill_lang_type == "token_concat":
                     merged = torch.cat([text, l_emb], dim=-1)
